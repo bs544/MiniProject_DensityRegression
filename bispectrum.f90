@@ -1,23 +1,54 @@
 module bispectrum
 	use utilities
-	use SphericalHarmonics, only: sphericalHarm
+	use BasisFunctions, only: sphericalHarm, radialBasis, CG
 	implicit none
 	!bispectrum computed as in PHYSICAL REVIEW B 87, 184115 (2013)
 	
-	!derived type for parameters
-	type param
-		real(dp) :: r_c
+	
+	type bispectParams
+	!derived type for bispectrum parameters
+		real(8) :: r_c
 		integer :: l_max, n_max
+	end type bispectParams
+	
+	type systemState
+	!derived type containing information about the system
+		real(8) :: cell(3,3)!vector elements are given by the first index, the vector labels by the second (first index varies faster in fortran)
+		real(8) :: atom_positions(:,:)!first index gives vector element, second give atom number
+		integer :: nAtoms ! number of atoms
+	end type systemState
 	
 	
-	real, parameter :: r_c !cutoff radius
 	
 	
+	
+	
+	
+	
+	subroutine localProjector(atomPositions,centre,C_nlm,n,l,m,r_c)
 	!around a general point in space, project atomic positions onto the basis functions
-	subroutine localProjector()
-	!isolate local space
-	!go to polar coordinates from central point
-	!get spherical harmonic values for each atom and multiply by radial basis and sum
+	
+		implicit none
+		real(8), intent(in) :: atomPositions(:,:)
+		real(8), intent(in) :: centre(:)
+		real(8), intent(in) :: C_nlm, r_c
+		integer, intent(in) :: n,l,m
+		
+		real(8), allocatable :: shiftedPositions(:,:), polarPositions(:,:)
+		integer :: arrayShape(2)
+		integer :: ii
+		
+		arrayShape = shape(atomPositions)!should be dimensions,#atoms
+		allocate(shiftedPositions(arrayShape))
+		allocate(polarPositions(arrayShape))
+		
+		
+		do ii = 1, arrayShape(2)
+			shiftedPositions(:,ii) = atomPositions(:,ii) - centre
+			
+		
+	
+	
 	
 	
 	end subroutine localProjector
@@ -31,10 +62,7 @@ module bispectrum
 	
 	
 	
-	function cutoff(r, r_c)
-		implicit none
-		real, parameter :: r_c
-		real :: r
+
 		
 		
 		
