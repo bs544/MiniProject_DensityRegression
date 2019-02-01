@@ -1,14 +1,75 @@
 module utilities
 	implicit none
 	
+	real(8), external :: dnrm2
+	real(8), external :: ddot
+	
+	type bispectParamType
+	!derived type for bispectrum parameters
+		real(8) :: r_c
+		integer :: l_max, n_max
+	end type bispectParamType
+	
+	type systemStateType
+	!derived type containing information about the system
+		real(8) :: cell(3,3)!vector elements are given by the first index, the vector labels by the second (first index varies faster in fortran)
+		integer :: nAtoms ! number of atoms
+		real(8), allocatable :: atomPositions(:,:)!first index gives vector element, second give atom number
+	end type systemStateType	
+	
+
 	public getDist
 	public getLocalIndices
 	public checkInCell
 	public localCart2Polar
 	public factorial
 	public minAbsFloor
+	public assignBispectParams
+	public assignSystemState
+	
+	
+	
+	type(bispectParamType), public :: bispectParams
+	type(systemStateType), public :: systemState
+	
+	
 
 	contains
+	
+	
+	
+	subroutine assignBispectParams(bispectType,r_c,l_max,n_max)
+		implicit none
+		
+		type(bispectParamType), intent(inout) :: bispectType
+		integer, intent(in) :: l_max, n_max
+		real(8), intent(in) :: r_c
+		
+		bispectType%r_c = r_c
+		bispectType%l_max = l_max
+		bispectType%n_max = n_max	
+	
+	end subroutine assignBispectParams
+	
+	
+	
+	subroutine assignSystemState(systemState, cell, atomPositions)
+		implicit none
+		
+		type(systemStateType), intent(inout) :: systemState
+		real(8), intent(in) :: cell(3,3)
+		real(8), intent(in) :: atomPositions(:,:)
+		
+		integer :: natoms, arrayShape(2)
+		
+		arrayShape = shape(atomPositions)
+		natoms = arrayShape(2)
+		
+		systemState%cell = cell
+		systemState%atomPositions = atomPositions
+		systemState%natoms = natoms
+	
+	end subroutine assignSystemState
 	
 	
 	
@@ -17,51 +78,18 @@ module utilities
 		implicit none
 		real(8), intent(in) :: pos1(3)
 		real(8), intent(in) :: pos2(3)
-		real(8) :: getDist
 		
-		getDist = sqrt(sum((pos1-pos2)**2))
+		real(8), external :: dnrm2
+		
+		real(8) :: getDist, diff(3)
+		
+		diff = pos1-pos2
+		
+		getDist = dnrm2(3,diff,1)!sqrt(sum((pos1-pos2)**2))
 		
 	end function getDist
 
 
-
-	subroutine getLocalIndices(posns,r_c, centre,localList,cell)
-	!gets an array of indices for the positions in a cutoff sphere around the centre
-		implicit none
-		real(8), intent(in) :: r_c
-		real(8), intent(in) :: posns(:,:)
-		real(8), intent(in) :: centre(3)
-		real(8), intent(in) :: cell(3,3)!vector elements are given by the first index, the vector labels by the second (first index varies faster in fortran)
-		integer :: localList(:)
-		logical :: checkNear
-		integer :: array_shape(2)
-		integer :: idx, natoms, counter
-		integer, allocatable :: inRange(:)
-		!inRange gets the indices of the atoms in range, with trailing zeros
-		!this becomes localList, and any do loop can be terminated for an index of 0
-
-		array_shape = shape(posns)!should be 3,N since the first index varies more rapidly
-		natoms = array_shape(2)
-		counter = 0
-		
-		allocate(inRange(natoms))
-		inRange = 0
-		
-		do idx=1,natoms
-			checkNear = isNear(posns(:,idx),centre,cell,r_c)
-			if(checkNear) then
-				counter = counter + 1
-				inRange(counter) = idx		
-			end if
-		end do
-		
-		localList = inRange
-		
-		deallocate(inRange)
-		
-	end subroutine getLocalIndices
-	
-	
 	
 	logical function isNear(pos1,pos2,cell,r_c)
 	!checks if two positions are within r_c of each other in the periodic cell
@@ -125,10 +153,15 @@ module utilities
 		real(8), intent(in) :: vect2(3)
 		integer :: ii
 		
-		dot = 0
-		do ii = 1,3
-			dot = dot + vect1(ii)*vect2(ii)
-		end do
+		real(8), external :: ddot
+		
+		dot = ddot(3,vect1,1,vect2,1)
+!		dot = 0
+!		do ii = 1,3
+!			dot = dot + vect1(ii)*vect2(ii)
+!		end do
+
+		
 	end function dot
 
 
@@ -148,6 +181,63 @@ module utilities
 		currentMin = 0
 		currentMinVec = 0	
 		
+		call assignLatticeVectors(latt_vect,cell)
+		
+		do ii = 1,26
+			dist(ii) = getDist(pos1+latt_vect(:,ii),pos2)
+			if (dist(ii).lt.currentMin) then
+				currentMin = dist(ii)
+				currentMinVec = pos1+latt_vect(:,ii)-pos2
+			end if
+		end do
+
+		smallestDisplacement = currentMinVec
+	end function smallestDisplacement
+	
+	
+	
+!	integer function neighNumber(posns,cell,centre,r_c)
+!	!gets the number of atoms within r_c, accounting for the periodic cell
+!		real(8), intent(in) :: posns(:,:)
+!		real(8), intent(in) :: centre(3)
+!		real(8), intent(in) :: cell(3,3)
+!		real(8), intent(in) :: r_c
+		
+!		integer :: maxLattVect(3)!given the ratio of r_c to cell sides, figure out how many lattice vectors to try
+!		integer :: ii, jj, kk, idx, counter, arrayShape(2)
+!		real(8) :: dist, shiftedPosn(3), sideLengths(3)
+		
+!		arrayShape = shape(posns)
+!		counter = 0
+		
+!		do ii = 1,3
+!			sideLengths(ii) = sqrt(dot(cell(:,ii),cell(:,ii)))
+!		end do
+		
+!		maxLattVect = ceiling(sideLengths/r_c)
+		
+!		do idx = 1, arrayShape(2)
+!			do ii = -maxLattVect(1),maxLattVect(1)
+!				do jj = -maxLattVect(2),maxLattVect(2)
+!					do kk = -maxLattVect(3),maxLattVect(3)
+!						shiftedPosn = posns(:,idx) + ii*cell(:,1) + jj*cell(:,2) + kk*cell(:,3)
+!						dist = 
+!					end do
+!				end do
+!			end do
+!		end do
+		
+	
+!	end function neighNumber
+	
+	
+	
+	subroutine assignLatticeVectors(latt_vect,cell)
+		implicit none
+		
+		real(8), intent(in) :: cell(3,3)
+		real(8), intent(inout) :: latt_vect(3,26)
+		
 		latt_vect(:,1:3) = cell
 			
 		latt_vect(:,4) = cell(:,1) + cell(:,2)
@@ -161,18 +251,8 @@ module utilities
 		latt_vect(:,12) = cell(:,1) - cell(:,2) + cell(:,3)
 		latt_vect(:,13) = cell(:,1) - cell(:,2) - cell(:,3)
 		
-		latt_vect(:,14:26) = -1*latt_vect(:,1:13)	
-		
-		do ii = 1,26
-			dist(ii) = getDist(pos1+latt_vect(:,ii),pos2)
-			if (dist(ii).lt.currentMin) then
-				currentMin = dist(ii)
-				currentMinVec = pos1+latt_vect(:,ii)-pos2
-			end if
-		end do
-
-		smallestDisplacement = currentMinVec
-	end function smallestDisplacement
+		latt_vect(:,14:26) = -1*latt_vect(:,1:13)
+	end subroutine assignLatticeVectors
 		
 	
 	

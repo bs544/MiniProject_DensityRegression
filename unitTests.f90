@@ -21,7 +21,7 @@ real(8) :: P_l, x = 0.5
 integer :: l
 
 !get_dist test
-if (.False.) then
+if (.True.) then
 
 	pos1 = (/ 1.0, 0.0, 0.0 /)
 	pos2 = (/ 0.0, 1.0, 0.0 /)
