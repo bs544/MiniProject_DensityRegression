@@ -3,6 +3,11 @@ module utilities
 	
 	real(8), external :: dnrm2
 	real(8), external :: ddot
+	real(8), external :: dysev
+	real(8), external :: dgemm
+	
+	real(8) :: diff = dble(1e-8)!tolerance in difference between two values that should be the same
+	!I made this one up, check to see what the proper difference should be
 	
 	type bispectParamType
 	!derived type for bispectrum parameters
@@ -17,9 +22,15 @@ module utilities
 		real(8), allocatable :: atomPositions(:,:)!first index gives vector element, second give atom number
 	end type systemStateType	
 	
+	type pointType
+	!properties that will vary for each point in the space
+		real(8) :: pointPosition(3)
+		real(8), allocatable :: neighbourList(:,:)!list of vectors within r_c of the point position (unshifted)
+		integer :: numNeighbours
+	end type pointType
+	
 
 	public getDist
-	public getLocalIndices
 	public checkInCell
 	public localCart2Polar
 	public factorial
@@ -31,6 +42,7 @@ module utilities
 	
 	type(bispectParamType), public :: bispectParams
 	type(systemStateType), public :: systemState
+	type(pointType), public :: point
 	
 	
 
@@ -38,16 +50,26 @@ module utilities
 	
 	
 	
-	subroutine assignBispectParams(bispectType,r_c,l_max,n_max)
+	subroutine assignPoint(point, centre)
 		implicit none
 		
-		type(bispectParamType), intent(inout) :: bispectType
+		type(pointType), intent(inout) :: point
+		real(8), intent(in) :: centre
+		point%pointPosition = centre
+	end subroutine assignPoint
+	
+	
+	
+	subroutine assignBispectParams(bispectParams,r_c,l_max,n_max)
+		implicit none
+		
+		type(bispectParamType), intent(inout) :: bispectParams
 		integer, intent(in) :: l_max, n_max
 		real(8), intent(in) :: r_c
 		
-		bispectType%r_c = r_c
-		bispectType%l_max = l_max
-		bispectType%n_max = n_max	
+		bispectParams%r_c = r_c
+		bispectParams%l_max = l_max
+		bispectParams%n_max = n_max	
 	
 	end subroutine assignBispectParams
 	
@@ -73,8 +95,8 @@ module utilities
 	
 	
 	
-	!gets distance between two cartesian coordinates
 	function getDist(pos1, pos2)
+	!gets distance between two cartesian coordinates	
 		implicit none
 		real(8), intent(in) :: pos1(3)
 		real(8), intent(in) :: pos2(3)
@@ -143,19 +165,23 @@ module utilities
 		
 		
 		
-		
-		
-		
 	real(8) function dot(vect1,vect2)
 	!gets the dot product between two cartesian vectors
 		implicit none
-		real(8), intent(in) :: vect1(3)
-		real(8), intent(in) :: vect2(3)
-		integer :: ii
+		real(8), intent(in) :: vect1(:)
+		real(8), intent(in) :: vect2(:)
+		integer :: ii, dim1, dim2
 		
 		real(8), external :: ddot
 		
-		dot = ddot(3,vect1,1,vect2,1)
+		dim1 = size(vect1)
+		dim2 = size(vect2)
+		
+		if (dim1.ne.dim2) then
+			print*,"The two vectors don't have the same dimensions"
+		end if
+		
+		dot = ddot(dim1,vect1,1,vect2,1)
 !		dot = 0
 !		do ii = 1,3
 !			dot = dot + vect1(ii)*vect2(ii)
@@ -163,6 +189,7 @@ module utilities
 
 		
 	end function dot
+
 
 
 	function smallestDisplacement(pos1,pos2,cell)
@@ -196,42 +223,6 @@ module utilities
 	
 	
 	
-!	integer function neighNumber(posns,cell,centre,r_c)
-!	!gets the number of atoms within r_c, accounting for the periodic cell
-!		real(8), intent(in) :: posns(:,:)
-!		real(8), intent(in) :: centre(3)
-!		real(8), intent(in) :: cell(3,3)
-!		real(8), intent(in) :: r_c
-		
-!		integer :: maxLattVect(3)!given the ratio of r_c to cell sides, figure out how many lattice vectors to try
-!		integer :: ii, jj, kk, idx, counter, arrayShape(2)
-!		real(8) :: dist, shiftedPosn(3), sideLengths(3)
-		
-!		arrayShape = shape(posns)
-!		counter = 0
-		
-!		do ii = 1,3
-!			sideLengths(ii) = sqrt(dot(cell(:,ii),cell(:,ii)))
-!		end do
-		
-!		maxLattVect = ceiling(sideLengths/r_c)
-		
-!		do idx = 1, arrayShape(2)
-!			do ii = -maxLattVect(1),maxLattVect(1)
-!				do jj = -maxLattVect(2),maxLattVect(2)
-!					do kk = -maxLattVect(3),maxLattVect(3)
-!						shiftedPosn = posns(:,idx) + ii*cell(:,1) + jj*cell(:,2) + kk*cell(:,3)
-!						dist = 
-!					end do
-!				end do
-!			end do
-!		end do
-		
-	
-!	end function neighNumber
-	
-	
-	
 	subroutine assignLatticeVectors(latt_vect,cell)
 		implicit none
 		
@@ -256,33 +247,25 @@ module utilities
 		
 	
 	
-	
-	subroutine localCart2Polar(posns,polarPosns, centre, localList)
+	subroutine localCart2Polar(polarPosns, point)
 		implicit none
-		real(8), intent(in) :: posns(:,:)!elements of the vector on the left, vector number on the right
-		real(8), intent(in) :: centre(3)
-		integer, intent(in) :: localList(:)
-		real(8) :: polarposns(:,:)
+		type(pointType), intent(in) :: point
+		real(8), intent(inout) :: polarposns(:,:)
+		
 		real(8), allocatable :: r(:), theta(:), phi(:), posnsShifted(:,:)
-		integer, dimension(2) :: natoms_dim
+		
 		integer :: idx, ii
 		
-		natoms_dim = shape(posns)
+		allocate(r(point%numNeighbours))
+		allocate(theta(point%numNeighbours))
+		allocate(phi(point%numNeighbours))
+		allocate(posnsShifted(3,point%numNeighbours))
 		
-		allocate(r(natoms_dim(1)))
-		allocate(theta(natoms_dim(1)))
-		allocate(phi(natoms_dim(1)))
-		
-		allocate(posnsShifted(natoms_dim(1),natoms_dim(2)))
-		
-		do ii=1,natoms_dim(1)
+		do idx=1,point%numNeighbours
 			!make this local with localList, it contains indices of local atoms, with trailing zeros
-			idx = localList(ii)
-			if (idx.eq.0)then
-				exit
-			end if
-			posnsShifted(:,idx) = posns(:,idx)-centre
-			r(idx) = getDist(posns(:,idx),centre)
+
+			posnsShifted(:,idx) = point%neighbourList(:,idx)-point%pointPosition
+			r(idx) = getDist(point%neighbourList(:,idx),point%pointPosition)
 			phi(idx) = acos(posnsShifted(3,idx)/r(idx))
 			if (abs(posnsShifted(1,idx)).gt.1e-15 .or. abs(posnsShifted(2,idx)).gt.1e-15) then
 				theta(idx) = atan(posnsShifted(2,idx)/posnsShifted(1,idx))
@@ -294,6 +277,10 @@ module utilities
 			polarposns(3, idx) = phi(idx)
 		end do
 
+		deallocate(r)
+		deallocate(theta)
+		deallocate(phi)
+		deallocate(posnsShifted)
 		
 	end subroutine localCart2Polar
 	
@@ -358,5 +345,266 @@ module utilities
 	end function minAbsFloor
 		
 		
+
+	subroutine tidyPoint(point)
+	!deallocates everything in the point type once it's finished its use
+		implicit none
+		type(pointType), intent(inout) :: point
+		
+		if (allocated(point%neighbourList)) then
+			deallocate(point%neighbourList)
+		end if
+	end subroutine tidyPoint
+	
+	
+	
+	subroutine tidySystem(systemState)
+	!deallocated anything still allocated in the systemState type
+		implicit none
+		type(systemStateType), intent(inout) :: systemState
+		
+		if (allocated(systemState%atomPositions)) then
+			deallocate(systemState%atomPositions)
+		end if
+	end subroutine tidySystem
+	
+	
+
+	subroutine sqrtInvSymmMatrix(symmMat,sqrtInv)
+	!gets the square root of the inverse of a symmetric matrix
+	!First do an eigenvalue decomposition S = R L R^-1
+	!Where R is a unitary matrix and L is the matrix of eigenvalues
+	!S^0.5 = R L^0.5 R^-1 since the square of a matrix has the same eigenvectors, with a squared eigenvalues
+	!S^-1 = R L^-1 R^-1
+	!Thus S^-0.5 = R L^-0.5 R^-1
+		implicit none
+		real(8), intent(in) :: symmMat(:,:)
+		real(8), intent(inout) :: sqrtInv(:,:)
+		
+		real(8), allocatable :: R(:,:)
+		real(8), allocatable :: invR(:,:)
+		real(8), allocatable :: Lambda(:,:)
+		real(8), allocatable :: invSqrtLambda(:,:)
+		real(8), allocatable :: intermediate(:,:)
+		integer :: arrayShape(2), ii
+		logical :: goodDecomp
+		
+		
+		arrayShape = shape(symmMat)
+		allocate(R(arrayShape(1),arrayShape(2)))
+		allocate(invR(arrayShape(1),arrayShape(2)))
+		allocate(Lambda(arrayShape(1),arrayShape(2)))
+		allocate(invSqrtLambda(arrayShape(1),arrayShape(2)))
+		allocate(intermediate(arrayShape(1),arrayShape(2)))
+		
+		call eigenDecomp(symmMat,R,invR,Lambda)
+		
+		goodDecomp = checkDecomp(symmMat,R,invR,Lambda)
+		
+		if (goodDecomp) then
+			do ii = 1,arrayShape(1)
+				invSqrtLambda(ii,ii) = 1/sqrt(Lambda(ii,ii))
+			end do
+			call MatrixMult(invSqrtLambda,invR,intermediate)
+			call MatrixMult(R,intermediate,sqrtInv)
+			
+			call checkSqrtInv(sqrtInv,symmMat)
+		else
+			print *, "something went wrong with the eigenvector decomposition"
+		end if
+		
+		deallocate(R)
+		deallocate(invR)
+		deallocate(Lambda)
+		deallocate(invSqrtLambda)
+		deallocate(intermediate)
+	
+	end subroutine sqrtInvSymmMatrix
+	
+	
+	
+	subroutine eignDecomp(symmMat,R,invR,Lambda)
+	!gets the eigenvalue decomposition of a symmetric matrix
+	!so symmMat = R * Lambda * invR
+		implicit none
+		real(8), intent(in) :: symmMat(:,:)
+		real(8), intent(inout) :: R(:,:)
+		real(8), intent(inout) :: invR(:,:)
+		real(8), intent(inout) :: Lambda(:,:)
+		
+		external :: dsyev
+		
+		logical :: isSymm
+		integer :: arrayShape(2), info, workSize, ii, jj
+		real(8), allocatable :: eigenValues(:), work(:)
+		
+		isSymm = checkSquareSymm(symmMat)
+		
+		if (isSymm) then
+			info = 0
+			Lambda = 0.0d0
+			arrayShape = shape(symmMat)
+			R = symmMat
+			workSize = 3*arrayShape(1)-1
+			allocate(eigenValues(arrayShape(1)))
+			allocate(work(workSize))
+			call dsyev('V','U',arrayShape(1),R,arrayShape(1),eigenValues,work, workSize, info)
+			
+			if (info.ne.0) then
+				print *, "eigenvector decomposition failed, info value: ", info
+			end if
+			
+			do ii = 1, arrayShape(1)
+				do jj = 1, arrayShape(2)
+					!can get the inverse of R from the transpose since R should be unitary
+					invR(jj,ii) = R(ii,jj)
+				end do
+				Lambda(ii,ii) = eigenValues(ii)
+			end do
+			
+			deallocate(work)
+			deallocate(eigenValues)
+			
+		else
+			print *, "Not doing eigen decomp on non symmetric matrix"
+		end if
+		
+	
+	
+	end subroutine eignDecomp
+	
+	
+	
+	logical function checkSquareSymm(matrix)
+	!checks the matrix is square and symmetric
+		implicit none
+		real(8), intent(in) :: matrix(:,:)
+		
+		integer :: dim(2)
+		integer :: ii, jj
+		
+		
+		checkSquareSymm = .True.
+		
+		dim = shape(matrix)
+		
+		if (dim(1).ne.dim(2)) then
+			print *, "Matrix isn't square when it's supposed to be"
+			checkSquareSymm = .False.
+		end if
+		
+		do ii = 1, dim(1)
+			do jj = ii, dim(2)
+				if (abs(matrix(jj,ii)-matrix(ii,jj)).gt.diff) then
+					checkSquareSymm = .False.		
+					print *, "matrix not symmetric"		
+				end if
+			end do		
+		end do
+	
+	end function checkSquareSymm
+	
+	
+	
+	logical function checkDecomp(matrix, R, invR, Lambda)
+	!checks that the eigenvector decomposition worked as expected
+	!ie that matrix = R * lambda * invR
+		implicit none
+		real(8), intent(in) :: matrix(:,:), R(:,:), invR(:,:), Lambda(:,:)
+		
+		external :: dgemm
+		
+		real(8), allocatable :: matProduct(:,:), interim(:,:)
+		integer :: arrayShape(2), length, ii ,jj
+		
+		checkDecomp = .True.
+		
+		arrayShape = shape(matrix)
+		length = arrayShape(1)
+		
+		allocate(matProduct(arrayShape(1),arrayShape(2)))
+		allocate(interim(arrayShape(1),arrayShape(2)))
+		
+		call MatrixMult(Lambda,invR,interim)
+		call MatrixMult(R,interim,matProduct)
+		
+		do ii = 1, length
+			do jj = 1, length
+				if (abs(matProduct(ii,jj)-matrix(ii,jj)).gt.diff) then
+					checkDecomp = .False.
+				end if
+			end do	
+		end do
+		
+		deallocate(matProduct)
+		deallocate(interim)		
+	
+	end function checkDecomp
+	
+	
+	
+	subroutine MatrixMult(mat1,mat2,matProduct)
+	!multiplies two matrices: matProduct = mat1*mat2
+	!matProducts needs to have dimensions consistent with mat1 and mat2
+		implicit none
+		real(8), intent(in) :: mat1(:,:)
+		real(8), intent(in) :: mat2(:,:)
+		real(8), intent(inout) :: matProduct(:,:)
+		
+		external :: dgemm
+		
+		integer :: shape1(2), shape2(2), shape3(2)
+		
+		shape1 = shape(mat1)
+		shape2 = shape(mat2)
+		shape3 = shape(matProduct)
+		
+		if (shape3(1).ne.shape1(1).or.shape3(2).ne.shape2(2).or.shape1(2).ne.shape2(1)) then
+			print *, "the shape of the matrices is incompatible"
+			print *, "Matrix 1 shape: ", shape1
+			print *, "Matrix 2 shape: ", shape2
+			print *, "Product shape: ", shape3
+		else
+			call dgemm('n','n',shape3(1),shape3(2),shape1(2),1.0,mat1,shape1(1),mat2,shape2(1),0.0,matProduct,shape3(1))
+		end if
+	end subroutine MatrixMult
+		
+	
+	
+	subroutine checkSqrtInv(sqrtInv,symmMat)
+	!checks that you indeed have the square root of the inverse
+	!does so by checking that symmMat*(sqrtInv)^2 = I
+		implicit none
+		real(8), intent(in) :: sqrtInv(:,:)
+		real(8), intent(in) :: symmMat(:,:)
+		real(8), allocatable :: inv(:,:)
+		real(8), allocatable :: I(:,:)
+		integer :: arrayShape(2), ii, jj
+		
+		arrayShape = shape(sqrtInv)
+		allocate(inv(arrayShape(1),arrayShape(2)))
+		allocate(I(arrayShape(1),arrayShape(2)))
+		
+		call MatrixMult(sqrtInv,sqrtInv,inv)
+		call MatrixMult(symmMat,inv,I)
+		
+		!check that I is the identity
+		do ii = 1, arrayShape(1)
+			do jj = 1, arrayShape(1)
+				if (ii.ne.jj) then
+					if(abs(I(ii,jj)-0.0d0).gt.diff) then
+						print *, "The calculation for the square root of the inverse has failed"
+					end if
+				else if (ii.eq.jj) then
+					if (abs(I(ii,jj)-dble(1)).gt.diff) then
+						print *, "The calculation for the square root of the inverse has failed"
+					end if
+				end if
+			end do		
+		end do
+	
+	end subroutine checkSqrtInv
+	
+	
 	
 end module utilities

@@ -15,6 +15,7 @@ real(8) :: r_c = 3.0
 real(8), dimension(3,3) :: cell
 logical :: check
 integer :: ii
+type(pointType) :: pointInfo
 
 !for legendre
 real(8) :: P_l, x = 0.5
@@ -83,7 +84,9 @@ if (.False.) then
 	
 	polarPosns = 0
 	
-	call localCart2Polar(posns,polarPosns, centre, localList)
+	
+	
+	call localCart2Polar(polarPosns, point)
 	
 	print*, polarPosns(:,1)
 	print*, posns(:,1)
