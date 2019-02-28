@@ -1,4 +1,4 @@
-module utilities
+module util
 	implicit none
 	
 	real(8), external :: dnrm2
@@ -636,4 +636,4 @@ module utilities
 	
 	
 	
-end module utilities
+end module util

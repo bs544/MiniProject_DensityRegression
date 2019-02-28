@@ -1,6 +1,6 @@
 module neighbours
 	!module for creating a list of vectors of atoms within a cutoff radius
-	use utilities
+	use util
 	implicit none
 	
 	!public getLocalIndices	

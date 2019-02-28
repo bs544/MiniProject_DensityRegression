@@ -1,10 +1,12 @@
 module bispectrum
-	use utilities
-	use BasisFunctions, only: sphericalHarm, radialBasis, CG, invOverlap
+	use util
+	use basis, only: sphericalHarm, radialBasis, invOverlap, getW
 	use neighbours
 	implicit none
 	!bispectrum computed as in PHYSICAL REVIEW B 87, 184115 (2013)
 
+	public getLocalBispectrum
+	public get_CG_tensor
 	
 	
 	contains
@@ -177,11 +179,11 @@ module bispectrum
 	
 	end subroutine globalProjector
 	
-	subroutine get_CG_tensor(CG_tensor,l_max)
+	function get_CG_tensor(l_max)
 	!calculate all of the Clebsch Gordan coefficients and store them in an array
 		implicit none
-		real(8), intent(inout) :: CG_tensor(:,:,:,:,:,:)
 		integer, intent(in) :: l_max
+		real(8), dimension(0:l_max,0:l_max,0:l_max,0:2*l_max,0:2*l_max,0:2*l_max) :: get_CG_tensor !note that m value doesn't correspond with index, this is to get to python
 		!should have dimensions (0:l_max,0:l_max,0:lmax,-l_max:l_max,-l_max:l_max,-l_max:l_max)
 		integer :: l_,l_1,l_2,m_,m_1,m_2
 		
@@ -191,15 +193,89 @@ module bispectrum
 					do m_=-l_,l_
 						do m_1 = -l_1,l_1
 							do m_2 = -l_2,l_2
-								CG_tensor(l_,l_1,l_2,m_,m_1,m_2) = CG(l_1,m_1,l_2,m_2,l_,m_)
+								!CG_tensor(l_,l_1,l_2,m_,m_1,m_2) = 0
+								get_CG_tensor(l_,l_1,l_2,m_+l_max,m_1+l_max,m_2+l_max) = CG(l_1,m_1,l_2,m_2,l_,m_)
 							end do
 						end do
 					end do
 				end do
 			end do		
 		end do
-	end subroutine get_CG_tensor
+	end function get_CG_tensor
 	
+	real(8) function CG(l_1,m_1,l_2,m_2,l,m)
+	!Pretty much all copied from Andrew Fowler's code, should go back and write myself
+	!See his github here: https://github.com/andrew31416 and look for spherical_harmonics.f90
+	!This is the Clebsch-Gordan coefficient C_{l_1,m_1,l_2,m_2}^{l,m}
+	!The formula to calculate this can be found on page 238 of 'Quantum Theory of Angular Momentum' by Varshalovich
+	
+		implicit none
+		
+		integer, intent(in) :: l_1,m_1,l_2,m_2,l,m
+	
+		real(8) :: minimum,min_array(1:7),sqrtres
+		real(8) :: imin,imax,val,sumres,sqrtarg
+		real(8) :: dble_ii
+		integer :: ii
+	
+		if (abs(m_1 + m_2 - m).gt.1e-15) then
+			CG = 0.0d0
+		else
+			min_array(1) = l_1 + l_2 - l + 0.0d0
+			min_array(2) = l_1 - l_2 + l + 0.0d0
+			min_array(3) = -l_1 + l_2 + l + 0.0d0
+			min_array(4) = l_1 + l_2 + l + 1.0d0
+			min_array(5) = l_1 - abs(m_1) + 0.0d0
+			min_array(6) = l_2 - abs(m_2) + 0.0d0
+			min_array(7) = l - abs(m) + 0.0d0
+	
+			minimum = minval(min_array)
+	
+			if (minimum.lt.0.0d0) then
+				CG = 0.0d0
+			else
+				
+				sqrtarg = 1.0d0
+				sqrtarg = sqrtarg * factorial(minAbsFloor(l_1+m_1+ 0.0d0))
+				sqrtarg = sqrtarg * factorial(minAbsFloor(l_1-m_1+ 0.0d0))
+				sqrtarg = sqrtarg * factorial(minAbsFloor(l_2+m_2+ 0.0d0))
+				sqrtarg = sqrtarg * factorial(minAbsFloor(l_2-m_2+ 0.0d0))
+				sqrtarg = sqrtarg * factorial(minAbsFloor(l+m+ 0.0d0))
+				sqrtarg = sqrtarg * factorial(minAbsFloor(l-m+ 0.0d0))
+				sqrtarg = sqrtarg * dble((int(2.0d0*l) + 1))
+				sqrtarg = sqrtarg * factorial(minAbsFloor(min_array(1)))
+				sqrtarg = sqrtarg * factorial(minAbsFloor(min_array(2)))
+				sqrtarg = sqrtarg * factorial(minAbsFloor(min_array(3)))
+				
+				! sqrtarg is int so need to divide after casting to double
+				sqrtres = sqrt(sqrtarg / factorial(minAbsFloor(min_array(4))))
+				
+				min_array(1) = l_1 + m_2 - l+ 0.0d0
+				min_array(2) = l_2 - m_1 - l+ 0.0d0
+				min_array(3) = 0.0d0
+				min_array(4) = l_2 + m_2+ 0.0d0
+				min_array(5) = l_1 - m_1+ 0.0d0
+				min_array(6) = l_1 + l_2 - l+ 0.0d0
+				
+				imin = maxval(min_array(1:3))
+				imax = minval(min_array(4:6))
+				sumres = 0.0d0
+				do ii=minAbsFloor(imin),minAbsFloor(imax)
+					dble_ii = dble(ii)
+					val = 1.0d0
+					val = val * factorial(ii)
+					val = val * factorial(minAbsFloor(l_1 + l_2 - l - dble_ii ))
+					val = val * factorial(minAbsFloor(l_1 - m_1 - dble_ii ))
+					val = val * factorial(minAbsFloor(l_2 + m_2 - dble_ii ))
+					val = val * factorial(minAbsFloor(l - l_2 + m_1 + dble_ii ))
+					val = val * factorial(minAbsFloor(l - l_1 - m_2 + dble_ii ))
+					sumres = sumres + (-1.0d0)**ii / val
+				end do
+				CG = sqrtres * sumres
+			end if
+		end if
+	
+	end function CG
 	
 end module bispectrum
 

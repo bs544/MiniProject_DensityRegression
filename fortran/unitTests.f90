@@ -1,6 +1,7 @@
 program unitTests
-use utilities
-use BasisFunctions
+use util
+use basis
+use bispectrum
 implicit none
 
 !for get_dist
@@ -19,7 +20,11 @@ type(pointType) :: pointInfo
 
 !for legendre
 real(8) :: P_l, x = 0.5
-integer :: l, m
+integer :: m, l
+
+!CG test
+real(8), dimension(0:1,0:1,0:1,-1:1,-1:1,-1:1) :: CG_matrix
+
 
 !get_dist test
 if (.False.) then
@@ -114,7 +119,7 @@ end if
 
 
 !legendre test
-if (.True.) then
+if (.False.) then
 	l = 4
 	
 	do m=-4,4
@@ -123,6 +128,15 @@ if (.True.) then
 	end do
 	
 	
+end if
+
+!CG test
+if (.True.) then
+	l=1
+	CG_matrix = 0
+	CG_matrix =  get_CG_tensor(l)
+	write(*,*) CG_matrix(1,1,1,1,0,1)
+	write(*,*) CG_matrix
 end if
 
 end program unitTests
