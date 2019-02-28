@@ -19,10 +19,10 @@ type(pointType) :: pointInfo
 
 !for legendre
 real(8) :: P_l, x = 0.5
-integer :: l
+integer :: l, m
 
 !get_dist test
-if (.True.) then
+if (.False.) then
 
 	pos1 = (/ 1.0, 0.0, 0.0 /)
 	pos2 = (/ 0.0, 1.0, 0.0 /)
@@ -103,7 +103,7 @@ end if
 
 
 !minAbsFloor test
-if (.True.) then
+if (.False.) then
 	dist = 1.8
 	print*, minAbsFloor(dist)
 	dist = -1.6
@@ -114,10 +114,14 @@ end if
 
 
 !legendre test
-if (.False.) then
-	l = 5
-	P_l = legendre(l,x)
-	!print *,P_l
+if (.True.) then
+	l = 4
+	
+	do m=-4,4
+		P_l = legendre(m,l,x)
+		print *,P_l
+	end do
+	
 	
 end if
 

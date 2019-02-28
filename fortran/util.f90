@@ -292,17 +292,46 @@ module utilities
 		integer :: i
 		
 		if (N.eq.0) then
-		factorial = 1
+			factorial = 1
 		else if (N.lt.0) then
-		write(*,*) "Integer input to factorial needs to be greater than 0"
+			write(*,*) "Integer input to factorial needs to be greater than 0"
 		else if (N.gt.0) then
-		factorial = 1
+			factorial = 1
 		
-		do i = 1,N
-			factorial = factorial*i
-		end do
+			do i = 1,N
+				factorial = factorial*i
+			end do
 		end if
 	end function factorial
+	
+	integer function odd_factorial(N)
+		!gets the factorial as a product of all odd numbers up to N
+		implicit none
+		integer, intent(in) :: N
+		integer :: N_odd, max_idx, i
+		
+		if ( (N.gt.0).AND.(MOD(N,2).ne.0)) then
+			!N is odd and positive
+			N_odd = N
+		else if (N.gt.0) then
+			!N is even and positive (greater than 1)
+			N_odd = N-1
+		else if (N.eq.0) then
+			N_odd = 0
+		else
+			write(*,*) "Integer input to odd factorial needs to be positive"
+		end if
+		
+		if (N_odd.eq.0) then
+			odd_factorial = 1
+		else
+			odd_factorial = 1
+			max_idx = (N_odd+1)/2
+			do i=1,max_idx
+				odd_factorial = odd_factorial*((2*i)-1)
+			end do
+		end if
+	end function odd_factorial
 	
 	
 	
@@ -423,7 +452,7 @@ module utilities
 	
 	
 	
-	subroutine eignDecomp(symmMat,R,invR,Lambda)
+	subroutine eigenDecomp(symmMat,R,invR,Lambda)
 	!gets the eigenvalue decomposition of a symmetric matrix
 	!so symmMat = R * Lambda * invR
 		implicit none
@@ -471,7 +500,7 @@ module utilities
 		
 	
 	
-	end subroutine eignDecomp
+	end subroutine eigenDecomp
 	
 	
 	
