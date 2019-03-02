@@ -151,9 +151,9 @@ module bispectrum
 		call globalProjector(systemState,coeffs,biPrms)
 		
 		if (all(coeffs.eq.0)) then
-			bispect_global = 0
+			bispect_global = 0.0d0
 		else
-		
+		bispect_global = 0.0d0
 		do n=1,n_max
 			do l=0,l_max
 				do l_1=0,l_max
@@ -284,6 +284,9 @@ module bispectrum
 		allocate(tmpCoeffs(1:n_max,0:l_max,-l_max:l_max))
 		allocate(tmpAtomPosns(3,n_atoms-1))
 		
+		tmpAtomPosns = 0.0d0
+		tmpCoeffs = 0.0d0
+		coeffs = 0.0d0
 		do ii=1, n_atoms
 			!first create a system state without the central atom, and a point type centered around the central atom
 			do jj=1,n_atoms
@@ -296,6 +299,7 @@ module bispectrum
 			call assignSystemState(tmpState,systemState%cell,tmpAtomPosns)
 			call assignPoint(point,systemState%atomPositions(:,ii))
 			
+			tmpCoeffs = 0.0d0			
 			call localProjector(tmpState,point,tmpCoeffs,r_c,n_max,l_max)
 			
 			coeffs = coeffs + tmpCoeffs

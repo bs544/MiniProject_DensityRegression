@@ -5,6 +5,8 @@ from den_fmt_io import castep_data
 from fortran.f90_descriptor import f90wrap_get_cg_tensor as get_CG_tensor
 from fortran.f90_descriptor import f90wrap_getbispectrum as get_bispect
 from fortran.f90_descriptor import f90wrap_bispect_length as bispect_length
+from fortran.f90_descriptor import f90wrap_getw as f90W
+from fortran.f90_descriptor import f90wrap_invoverlap as invOverlap
 import time
 import os
 import pickle
@@ -31,6 +33,7 @@ class fingerprints():
         self.descriptor = descriptor#not that I have any other kind to use
         self.fplength = bispect_length(self.nmax,self.lmax)
         self.filename = '{}.npy'.format(self.descriptor)
+        self.readlength = 1000
 
     def Load_data(self,datapath):
         casData = castep_data(dataPath=datapath)
@@ -48,8 +51,9 @@ class fingerprints():
 
         grid_size = len(self.rawInput[0]['xyz'])
         num_files = len(self.rawInput)
+        #self.readlength = grid_size
 
-        self.fingerprint = np.zeros((num_files*grid_size,self.fplength*2))
+        self.fingerprint = np.zeros((num_files*self.readlength,self.fplength*2))
 
         for i in range(num_files):
             cell = (self.rawInput[i]['cell'])
@@ -61,7 +65,7 @@ class fingerprints():
 
             glob_bispectrum = get_bispect(self.nmax,self.lmax,self.Rc,get_f90_array(at_posns),get_f90_array(cell),natoms,get_f90_array(grid[0,:]),cg_tensor,self.fplength,False,self.fplength)
             start = time.time()
-            for j in range(1000):
+            for j in range(self.readlength):
                 #print('Iteration: {}'.format(j))
                 bispectrum = get_bispect(self.nmax,self.lmax,self.Rc,get_f90_array(at_posns),get_f90_array(cell),natoms,get_f90_array(grid[4,:]),cg_tensor,self.fplength,True,self.fplength)
                 bispectrum = np.asarray(bispectrum.T,order='C')
@@ -101,6 +105,7 @@ class fingerprints():
             if (load):
                 loaded = self.Load_FP()
             if (loaded):
+                print(self.fingerprint[3,:])
                 return
             else:
                 self.bispectrum()
@@ -112,6 +117,6 @@ class fingerprints():
             return
 
 
-fp = fingerprints(lmax = 6,nmax = 5,r_c = 3.0)
+fp = fingerprints(lmax = 3,nmax = 3,r_c = 3.0)
 fp.Load_data('../CastepCalculations/DenNCells/')
-fp.get_FP(load=False,save=True)
+fp.get_FP(load=True,save=True)
