@@ -8,7 +8,7 @@ module util
 	real(8), external :: dysev
 	real(8), external :: dgemm
 	
-	real(8) :: diff = dble(1e-10)!tolerance in difference between two values that should be the same
+	real(8) :: diff = dble(1e-5)!tolerance in difference between two values that should be the same
 	!I made this one up, check to see what the proper difference should be
 	
 	type bispectParamType
@@ -290,7 +290,7 @@ module util
 	integer function factorial(N)
 		implicit none
 		integer, intent(in) :: N
-		integer :: i
+		integer :: ii
 		
 		if (N.eq.0) then
 			factorial = 1
@@ -300,8 +300,8 @@ module util
 		else if (N.gt.0) then
 			factorial = 1
 		
-			do i = 1,N
-				factorial = factorial*i
+			do ii = 1,N
+				factorial = factorial*ii
 			end do
 		end if
 	end function factorial
@@ -312,7 +312,7 @@ module util
 		!gets the factorial as a product of all odd numbers up to N
 		implicit none
 		integer, intent(in) :: N
-		integer :: N_odd, max_idx, i
+		integer :: N_odd, max_idx, ii
 		
 		if ( (N.gt.0).AND.(MOD(N,2).ne.0)) then
 			!N is odd and positive
@@ -332,8 +332,8 @@ module util
 		else
 			odd_factorial = 1
 			max_idx = (N_odd+1)/2
-			do i=1,max_idx
-				odd_factorial = odd_factorial*((2*i)-1)
+			do ii=1,max_idx
+				odd_factorial = odd_factorial*((2*ii)-1)
 			end do
 		end if
 	end function odd_factorial
@@ -416,32 +416,36 @@ module util
 		real(8), intent(in) :: symmMat(array_size,array_size)
 		real(8), intent(inout) :: sqrtInv(array_size,array_size)
 		
-		real(8), allocatable :: R(:,:)
-		real(8), allocatable :: invR(:,:)
-		real(8), allocatable :: Lambda(:,:)
-		real(8), allocatable :: invSqrtLambda(:,:)
-		real(8), allocatable :: intermediate(:,:)
+		real(8), dimension(array_size,array_size) :: R
+		real(8), dimension(array_size,array_size) :: invR
+		real(8), dimension(array_size,array_size) :: Lambda
+		real(8), dimension(array_size,array_size) :: invSqrtLambda
+		real(8), dimension(array_size,array_size) :: intermediate
 		integer :: ii
 		logical :: goodDecomp
 		
 		
 
-		allocate(R(array_size,array_size))
-		allocate(invR(array_size,array_size))
-		allocate(Lambda(array_size,array_size))
-		allocate(invSqrtLambda(array_size,array_size))
-		allocate(intermediate(array_size,array_size))
+!~ 		allocate(R(array_size,array_size))
+!~ 		allocate(invR(array_size,array_size))
+!~ 		allocate(Lambda(array_size,array_size))
+!~ 		allocate(invSqrtLambda(array_size,array_size))
+!~ 		allocate(intermediate(array_size,array_size))
 		
 		call eigenDecomp(symmMat,R,invR,Lambda,array_size)
 		
 		goodDecomp = checkDecomp(symmMat,R,invR,Lambda,array_size)
 		
+		
 		if (goodDecomp) then
+			invSqrtLambda = 0
 			do ii = 1,array_size
 				invSqrtLambda(ii,ii) = 1/sqrt(Lambda(ii,ii))
 			end do
 			!call MatrixMult(invSqrtLambda,invR,intermediate)
 			!call MatrixMult(R,intermediate,sqrtInv)
+			
+			
 			intermediate = matmul(invSqrtLambda,invR)
 			sqrtInv = matmul(R,intermediate)
 			
@@ -450,11 +454,11 @@ module util
 			print *, "something went wrong with the eigenvector decomposition"
 		end if
 		
-		deallocate(R)
-		deallocate(invR)
-		deallocate(Lambda)
-		deallocate(invSqrtLambda)
-		deallocate(intermediate)
+!~ 		deallocate(R)
+!~ 		deallocate(invR)
+!~ 		deallocate(Lambda)
+!~ 		deallocate(invSqrtLambda)
+!~ 		deallocate(intermediate)
 	
 	end subroutine sqrtInvSymmMatrix
 	
@@ -474,8 +478,13 @@ module util
 		
 		logical :: isSymm
 		integer :: arrayShape(2), info, workSize, ii, jj
-		real(8), allocatable :: eigenValues(:)
+		real(8), dimension(array_size) :: eigenValues
 		real(8), allocatable :: work(:)
+		
+!~ 		print *, "S:"
+!~ 		do ii = 1,array_size
+!~ 			print *, symmMat(:,ii)
+!~ 		end do
 		
 		isSymm = checkSquareSymm(symmMat)
 		
@@ -485,8 +494,9 @@ module util
 			arrayShape = shape(symmMat)
 			R = symmMat
 			workSize = 3*arrayShape(1)-1
-			allocate(eigenValues(arrayShape(1)))
 			allocate(work(workSize))
+!~ 			allocate(eigenValues(arrayShape(1)))
+
 			call dsyev('V','U',arrayShape(1),R,arrayShape(1),eigenValues,work, workSize, info)
 			
 			if (info.ne.0) then
@@ -497,16 +507,26 @@ module util
 				do jj = 1, arrayShape(2)
 					!can get the inverse of R from the transpose since R should be unitary
 					invR(jj,ii) = R(ii,jj)
+					if (ii.eq.jj) then
+						Lambda(ii,ii) = eigenValues(ii)
+					else
+						Lambda(ii,jj) = 0.0d0
+					end if
 				end do
-				Lambda(ii,ii) = eigenValues(ii)
+				!Lambda(ii,ii) = eigenValues(ii)
 			end do
 			
 			deallocate(work)
-			deallocate(eigenValues)
+!~ 			deallocate(eigenValues)
 			
 		else
 			print *, "Not doing eigen decomp on non symmetric matrix"
 		end if
+		
+!~ 		print *, "Lambda:"
+!~ 		do ii = 1,array_size
+!~ 			print *, Lambda(:,ii)
+!~ 		end do
 		
 	
 	end subroutine eigenDecomp
@@ -557,7 +577,7 @@ module util
 		
 		external :: dgemm
 		
-		real(8), allocatable :: matProduct(:,:), interim(:,:)
+		real(8), dimension(array_size,array_size) :: matProduct, interim
 		integer :: length, ii ,jj
 		
 		checkDecomp = .True.
@@ -565,8 +585,8 @@ module util
 		!arrayShape = shape(matrix)
 		length = array_size
 		
-		allocate(matProduct(array_size,array_size))
-		allocate(interim(array_size,array_size))
+!~ 		allocate(matProduct(array_size,array_size))
+!~ 		allocate(interim(array_size,array_size))
 		
 		!call MatrixMult(Lambda,invR,interim)
 		!call MatrixMult(R,interim,matProduct)
@@ -583,8 +603,8 @@ module util
 		end do
 		
 		
-		deallocate(matProduct)
-		deallocate(interim)		
+!~ 		deallocate(matProduct)
+!~ 		deallocate(interim)		
 	
 	end function checkDecomp
 	
@@ -597,12 +617,13 @@ module util
 		integer, intent(in) :: array_size
 		real(8), intent(in) :: sqrtInv(array_size,array_size)
 		real(8), intent(in) :: symmMat(array_size,array_size)
-		real(8), allocatable :: inv(:,:)
-		real(8), allocatable :: I(:,:)
+		real(8), dimension(array_size,array_size) :: inv
+		real(8), dimension(array_size,array_size) :: I
  		integer :: ii, jj
+ 		logical :: failure = .False.
 
-		allocate(inv(array_size,array_size))
-		allocate(I(array_size,array_size))
+!~ 		allocate(inv(array_size,array_size))
+!~ 		allocate(I(array_size,array_size))
 		
 		!inv = 0
 		!I = 0
@@ -618,26 +639,71 @@ module util
 			do jj = 1, array_size
 				if (ii.ne.jj) then
 					if(abs(I(ii,jj)-0.0d0).gt.diff) then
-						print *, "I"
-						print *, I
-						print *, "sqrtInv"
-						print *, sqrtInv
-						print *, "symmMat"
-						print *, symmMat
-						print *, "The calculation for the square root of the inverse has failed for off diagonal elements"
+						failure = .True.
 					end if
 				else if (ii.eq.jj) then
 					if (abs(I(ii,jj)-dble(1)).gt.diff) then
-						print *, "The calculation for the square root of the inverse has failed for diagonal elements"
+						failure = .True.
 					end if
 				end if
 			end do		
 		end do
 		
-		deallocate(inv)
-		deallocate(I)
+		if (failure) then
+			print *, "The calculation for the square root of the inverse has failed"	
+			print *, "I"
+			do ii = 1, array_size
+				print *, I(:,ii)
+			end do	
+		end if
+!~ 		deallocate(inv)
+!~ 		deallocate(I)
 	
 	end subroutine checkSqrtInv
+	
+	
+	subroutine inverseChecker(mat,invmat,array_size)
+	!checks that one square array is the inverse of another square array
+		implicit none
+		integer, intent(in) :: array_size
+		real(8), intent(in) :: mat(array_size,array_size)
+		real(8), intent(in) :: invmat(array_size,array_size)
+		
+		
+		real(8),dimension(array_size,array_size) :: I
+		integer :: ii,jj
+		logical :: failure = .False.
+		
+		
+		I = matmul(mat,invmat)
+		 
+		!check that I is the identity
+		do ii = 1, array_size
+			do jj = 1, array_size
+				if (ii.ne.jj) then
+					if(abs(I(ii,jj)-0.0d0).gt.diff) then
+						failure = .True.
+					end if
+				else if (ii.eq.jj) then
+					if (abs(I(ii,jj)-dble(1)).gt.diff) then
+						failure = .True.
+					end if
+				end if
+			end do		
+		end do
+		
+		if (failure) then
+			print *, "The calculation for the inverse has failed"
+			print *, "I"
+			do ii = 1, array_size
+				print *, I(:,ii)
+			end do
+		end if
+		
+	
+	
+	
+	end subroutine inverseChecker
 	
 	
 	

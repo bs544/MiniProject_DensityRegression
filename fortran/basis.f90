@@ -5,7 +5,7 @@ module basis
 	
 	public sphericalHarm
 	public radialBasis
-	public invOverlap
+	public overlapMatrix
 
 	contains
 	
@@ -59,7 +59,7 @@ module basis
 		integer, intent(in) :: m
 		integer, intent(in) :: l
 		real(8), intent(in) :: x
-		integer :: i, m_
+		integer :: ii, m_
 		real(8) :: tmp1, tmp2, diff, coeff1, coeff2
 		real(8) :: factor
 		
@@ -85,10 +85,10 @@ module basis
 		else if (diff.gt.1) then
 			legendre = p_mm1(m_,x)
 			tmp1 = p_mm(m_,x)
-			do i=m_+2,l
-				coeff1 = 2*i-1
-				coeff2 = i+m_-1
-				diff = i-m_
+			do ii=m_+2,l
+				coeff1 = 2*ii-1
+				coeff2 = ii+m_-1
+				diff = ii-m_
 				tmp2 = tmp1
 				tmp1 = legendre
 				legendre = (x*coeff1*tmp1-coeff2*tmp2)/diff
@@ -183,43 +183,7 @@ module basis
 	
 	end function radialBasis
 	
-	
-	
-	subroutine getW(W,n_max)
-	!gets the matrix used to combine the phi values to get the radial basis
-	!First get the overlap matrix, then do an eigenvalue decomposition S = R L R^-1
-	!Where R is a unitary matrix and L is the matrix of eigenvalues
-	!S^0.5 = R L^0.5 R^-1 since the square of a matrix has the same eigenvectors, with a squared eigenvalues
-	!S^-1 = R L^-1 R^-1
-	!Thus S^-0.5 = R L^-0.5 R^-1
-		implicit none
-		real(8), intent(inout) :: W(:,:)
-		integer, intent(in) :: n_max
-		
-		real(8) :: overlap(n_max,n_max)!, eigenValues(n_max,n_max)
-		overlap = overlapMatrix(n_max)
-		
-		call sqrtInvSymmMatrix(overlap,W,n_max)
-	
-	end subroutine getW
-	
-	function invOverlap(n_max)
-	!gets the inverse of the overlap matrix so that the proper coefficients can be calculated
-		implicit none
-		integer, intent(in) :: n_max
-		real(8), dimension(n_max,n_max) :: invOverlap
-		real(8), dimension(n_max,n_max) :: overlap
-		integer, dimension(n_max) :: ipiv
-		integer :: info1, info2
-		
-		overlap = overlapMatrix(n_max)
-		invOverlap = overlap
-		overlap = 0
-		call dsytrf('U',n_max,invOverlap,n_max,ipiv,overlap,n_max,info1)
-		call dsytri('U',n_max,invOverlap,n_max,ipiv,overlap,info2)
-	
-	end function invOverlap
-	
+
 	
 	function overlapMatrix(n_max)
 	!outputs the overlap matrix of the phi functions

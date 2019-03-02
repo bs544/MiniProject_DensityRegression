@@ -1,6 +1,6 @@
 module bispectrum
 	use util
-	use basis, only: sphericalHarm, radialBasis, invOverlap, getW
+	use basis, only: sphericalHarm, radialBasis, overlapMatrix
 	use neighbours
 	implicit none
 	!bispectrum computed as in PHYSICAL REVIEW B 87, 184115 (2013)
@@ -192,12 +192,12 @@ module bispectrum
 		complex(8), intent(inout) :: coeffs(1:n_max,0:l_max,-l_max:l_max)
 
 		
-		complex(8), allocatable :: coeffs_(:,:,:)		
+		complex(8), dimension(1:n_max,0:l_max,-l_max:l_max) :: coeffs_
 		real(8), allocatable :: polarPositions(:,:)
 		complex(8) :: temp
 		integer :: ii, n, n_1, n_2, l, m, buffer_size = 100
-		real(8), allocatable :: W(:,:)
-		real(8), allocatable :: inv_S(:,:)
+		real(8), dimension(n_max,n_max) :: W
+		real(8), dimension(n_max,n_max) :: inv_S
 		
 
 		coeffs = complex(0.0d0,0.0d0)
@@ -208,12 +208,11 @@ module bispectrum
 		call getNeighbours(systemState, point,r_c,buffer_size)
 		if (point%numNeighbours.gt.0) then
 			allocate(polarPositions(3,point%numNeighbours))
-			allocate(coeffs_(1:n_max,0:l_max,-l_max:l_max))
-			allocate(W(n_max,n_max))
-			allocate(inv_S(n_max,n_max))
+
 			
 			call getW(W,n_max)
 			inv_S = invOverlap(n_max)
+			
 			
 			call localCart2Polar(polarPositions, point,systemState)
 			!print *, polarPositions
@@ -245,9 +244,9 @@ module bispectrum
 			
 
 			deallocate(polarPositions)
-			deallocate(W)
-			deallocate(coeffs_)
-			deallocate(inv_S)
+!~ 			deallocate(W)
+!~ 			deallocate(coeffs_)
+!~ 			deallocate(inv_S)
 			
 
 
@@ -272,7 +271,7 @@ module bispectrum
 		
 		type(systemStateType) :: tmpState
 		type(pointType) :: point
-		integer :: i, j, n_max, l_max, n_atoms
+		integer :: ii, jj, n_max, l_max, n_atoms
 		real(8) :: r_c
 		real(8), allocatable :: tmpAtomPosns(:,:)
 		complex(8), allocatable :: tmpCoeffs(:,:,:)
@@ -285,17 +284,17 @@ module bispectrum
 		allocate(tmpCoeffs(1:n_max,0:l_max,-l_max:l_max))
 		allocate(tmpAtomPosns(3,n_atoms-1))
 		
-		do i=1, n_atoms
+		do ii=1, n_atoms
 			!first create a system state without the central atom, and a point type centered around the central atom
-			do j=1,n_atoms
-				if (i.ne.j.and.j.gt.i) then
-					tmpAtomPosns(:,j-1) = systemState%atomPositions(:,j)
-				else if (i.ne.j.and.j.lt.i) then
-					tmpAtomPosns(:,j) = systemState%atomPositions(:,j)
+			do jj=1,n_atoms
+				if (ii.ne.jj.and.jj.gt.ii) then
+					tmpAtomPosns(:,jj-1) = systemState%atomPositions(:,jj)
+				else if (ii.ne.jj.and.jj.lt.ii) then
+					tmpAtomPosns(:,jj) = systemState%atomPositions(:,jj)
 				end if
 			end do
 			call assignSystemState(tmpState,systemState%cell,tmpAtomPosns)
-			call assignPoint(point,systemState%atomPositions(:,i))
+			call assignPoint(point,systemState%atomPositions(:,ii))
 			
 			call localProjector(tmpState,point,tmpCoeffs,r_c,n_max,l_max)
 			
@@ -508,8 +507,54 @@ module bispectrum
 		
 		bispect_length = counter
 	end function bispect_length
+	
+	
+	
+	function invOverlap(n_max)
+	!gets the inverse of the overlap matrix so that the proper coefficients can be calculated
+		implicit none
+		integer, intent(in) :: n_max
+		real(8), dimension(n_max,n_max) :: invOverlap
+		real(8), dimension(n_max,n_max) :: overlap
+		integer, dimension(n_max) :: ipiv, work
+		integer :: info1, info2
 		
+		overlap = overlapMatrix(n_max)
+		
+		
+		invOverlap = overlap
+		
+		call dgetrf(n_max,n_max,invOverlap,n_max,ipiv,info1)
+		call dgetri(n_max, invOverlap, n_max, ipiv, work, n_max, info2)
+!~ 		call dsytrf('U',n_max,invOverlap,n_max,ipiv,overlap,n_max,info1)
+!~ 		call dsytri('U',n_max,invOverlap,n_max,ipiv,overlap,info2)
 			
+		
+		call inverseChecker(overlap,invOverlap,n_max)
+	
+	end function invOverlap
+	
+		
+		
+	subroutine getW(W,n_max)
+	!gets the matrix used to combine the phi values to get the radial basis
+	!First get the overlap matrix, then do an eigenvalue decomposition S = R L R^-1
+	!Where R is a unitary matrix and L is the matrix of eigenvalues
+	!S^0.5 = R L^0.5 R^-1 since the square of a matrix has the same eigenvectors, with a squared eigenvalues
+	!S^-1 = R L^-1 R^-1
+	!Thus S^-0.5 = R L^-0.5 R^-1
+		implicit none
+		real(8), intent(inout) :: W(:,:)
+		integer, intent(in) :: n_max
+		
+		real(8) :: overlap(n_max,n_max)!, eigenValues(n_max,n_max)
+		overlap = overlapMatrix(n_max)
+		
+		call sqrtInvSymmMatrix(overlap,W,n_max)
+	
+	end subroutine getW			
+	
+	
 	
 end module bispectrum
 
