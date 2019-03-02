@@ -77,7 +77,10 @@ module neighbours
 			sideLengths(ii) = sqrt(dot(systemState%cell(:,ii),systemState%cell(:,ii)))
 		end do
 		
-		maxLattVect = ceiling(sideLengths/r_c)
+		maxLattVect = ceiling(r_c/sidelengths)
+
+		
+
 		
 		do idx = 1, systemState%nAtoms
 			do ii = -maxLattVect(1),maxLattVect(1)
@@ -98,6 +101,7 @@ module neighbours
 		point%neighbourList = temporaryList(:,1:counter)
 		point%numNeighbours = counter
 		deallocate(temporaryList)
+		
 
 	
 	end subroutine getNeighbours

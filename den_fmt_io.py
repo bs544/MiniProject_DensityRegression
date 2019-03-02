@@ -49,6 +49,12 @@ class castep_data():
         posns = pos_cell.get_positions()
         species = pos_cell.get_species()
         cell = pos_cell.get_cell()
+
+        #positions are relative coordinates when they come out
+        #multiply by cell values to get coordinates in Angstroms
+        for i in range(posns.shape[0]):
+            posns[i,:] = np.dot(cell,posns[i,:])
+
         celldict['cell'] = cell
         celldict['elements'] = species
         celldict['positions'] = posns

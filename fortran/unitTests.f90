@@ -17,6 +17,7 @@ real(8), dimension(3,3) :: cell
 logical :: check
 integer :: ii
 type(pointType) :: pointInfo
+type(systemStateType) :: system_State
 
 !for legendre
 real(8) :: P_l, x = 0.5
@@ -90,8 +91,8 @@ if (.False.) then
 	polarPosns = 0
 	
 	
-	
-	call localCart2Polar(polarPosns, point)
+	system_State%natoms = 2
+	call localCart2Polar(polarPosns, point,system_State)
 	
 	print*, polarPosns(:,1)
 	print*, posns(:,1)

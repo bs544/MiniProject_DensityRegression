@@ -77,6 +77,7 @@ module basis
 		!l=1 and l=0 fall under this umbrella anyway, which is nice
 		if (diff.lt.0) then
 			write(*,*) "l must be greater than or equal to |m|"
+			legendre = 0
 		else if (diff.eq.0) then
 			legendre = p_mm(m_,x)
 		else if (diff.eq.1) then
@@ -198,7 +199,7 @@ module basis
 		real(8) :: overlap(n_max,n_max)!, eigenValues(n_max,n_max)
 		overlap = overlapMatrix(n_max)
 		
-		call sqrtInvSymmMatrix(overlap,W)
+		call sqrtInvSymmMatrix(overlap,W,n_max)
 	
 	end subroutine getW
 	

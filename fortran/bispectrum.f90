@@ -11,17 +11,73 @@ module bispectrum
 	
 	contains
 	
-	subroutine getLocalBispectrum(systemState,point,bispectParams,bispect_local,CG_tensor)
+	
+	
+	function getBispectrum(n_max,l_max,r_c, atomPositions,cell,nAtoms,pointPosition,CG_tensor_in,array_length,local)
+	!gets the local or global bispectrum, depending on the logical value local
+	!returns a vector array, but you'll need to remove the zero values elsewhere
+		implicit none
+		integer, intent(in) :: n_max
+		integer, intent(in) :: l_max
+		real(8), intent(in) :: r_c
+		real(8), intent(in) :: atomPositions(:,:)
+		real(8), intent(in) :: cell(3,3)
+		integer, intent(in) :: nAtoms
+		real(8), intent(in) :: pointPosition(3)
+		real(8), intent(in) :: CG_tensor_in(0:l_max,0:l_max,0:l_max,0:2*l_max,0:2*l_max,0:2*l_max)
+		integer, intent(in) :: array_length
+		logical, intent(in) :: local
+		
+		type(systemStateType) :: systemState
+		type(pointType) :: point
+		type(bispectParamType) :: bispectParams
+		
+		real(8), dimension(0:l_max,0:l_max,0:l_max,-l_max:l_max,-l_max:l_max,-l_max:l_max) :: CG_tensor
+		real(8), dimension(1:n_max,0:l_max,0:l_max,0:l_max) :: bispect_tensor
+		real(8), dimension(array_length) :: getBispectrum
+		logical, dimension(1:n_max,0:l_max,0:l_max,0:l_max) :: mask
+		
+		mask = get_output_mask(n_max,l_max)	
+			
+		
+		call assignBispectParams(bispectParams,r_c,l_max,n_max)
+		call format_CG(CG_tensor_in,CG_tensor,l_max)
+		call assignSystemState(systemState,cell,atomPositions)
+		call assignPoint(point,pointPosition)
+		
+		
+		if (local) then
+			call getLocalBispectrum(systemState,point,bispectParams,bispect_tensor,CG_tensor)
+		else
+			call getGlobalBispectrum(systemState,bispectParams,bispect_tensor,CG_tensor)
+		end if
+		
+		!I might add a non zero mask later but I need to add a program to check the number of non zero bispectrum values
+		!write(*,*) bispect_tensor
+		getBispectrum = 0
+		getBispectrum = pack(bispect_tensor,mask)
+		
+		call tidySystem(systemState)
+		call tidyPoint(point)
+		
+	
+	end function getBispectrum
+	
+	
+	
+	subroutine getLocalBispectrum(systemState,point,biPrms,bispect_local,CG_tensor)
 		implicit none
 		type(systemStateType), intent(in) :: systemState
 		type(pointType), intent(inout) :: point
-		type(bispectParamType), intent(in) :: bispectParams
-		real(8), intent(inout) :: bispect_local(:,:,:,:)
-		real(8), intent(in) :: CG_tensor(:,:,:,:,:,:)	
+		type(bispectParamType), intent(in) :: biPrms
+		real(8), intent(inout) :: bispect_local(1:biPrms%n_max,0:biPrms%l_max,0:biPrms%l_max,0:biPrms%l_max)
+		real(8), intent(in) :: CG_tensor(0:biPrms%l_max,0:biPrms%l_max,0:biPrms%l_max,&
+		-biPrms%l_max:biPrms%l_max,-biPrms%l_max:biPrms%l_max,-biPrms%l_max:biPrms%l_max)	
 		
 		complex(8), allocatable :: coeffs(:,:,:)
 		integer :: n, l, l_1, l_2, m, m_1, m_2
 		integer :: n_max, l_max
+		real(8) :: r_c
 	
 		real(8) :: tmp
 		
@@ -31,19 +87,71 @@ module bispectrum
 !			allGood = checkInCell(systemState%atomPositions(:,ii),cell)
 !		end do
 		
-		n_max = bispectParams%n_max
-		l_max = bispectParams%l_max
+		n_max = biPrms%n_max
+		l_max = biPrms%l_max
+		r_c = biPrms%r_c
 		
 		allocate(coeffs(1:n_max,0:l_max,-l_max:l_max))
-		!allocate(CG_tensor(0:l_max,0:l_max,0:lmax,-l_max:l_max,-l_max:l_max,-l_max:l_max))
+		coeffs = complex(0.0d0,0.0d0)
+				
+		call localProjector(systemState,point,coeffs,r_c,n_max,l_max)
 		
-		!CG_tensor = 0
-		!call get_CG_tensor(CG_tensor,l_max)
+		if (all(coeffs.eq.complex(0.0d0,0.0d0))) then
+			bispect_local = 0
+			!print *, "zero coefficients"
+		else
 		
-		call localProjector(systemState,point,coeffs,bispectParams)
+		bispect_local = 0
+
+		do n=1,n_max
+			do l=0,l_max
+				do l_1=0,l_max
+					do l_2=0,l_max
+						tmp = 0
+						do m=-l,l
+							do m_1=-l_1,l_1
+								do m_2=-l_2,l_2
+									tmp = tmp + RealPart(conjg(coeffs(n,l,m))*CG_tensor(l,l_1,l_2,m,m_1,m_2)*coeffs(n,l_1,m_1)*coeffs(n,l_2,m_2))
+								end do
+							end do
+						end do
+						bispect_local(n,l,l_1,l_2) = tmp
+					end do
+				end do
+			end do
+		end do	
+		end if
+				
+		deallocate(coeffs)
+
+	
+	end subroutine getLocalBispectrum
+	
+	
+	
+	subroutine getGlobalBispectrum(systemState,biPrms,bispect_global,CG_tensor)
+		implicit none
+		type(systemStateType), intent(in) :: systemState
+		type(bispectParamType), intent(in) :: biPrms
+		real(8), intent(inout) :: bispect_global(1:biPrms%n_max,0:biPrms%l_max,0:biPrms%l_max,0:biPrms%l_max)
+		real(8), intent(in) :: CG_tensor(0:biPrms%l_max,0:biPrms%l_max,0:biPrms%l_max,&
+		-biPrms%l_max:biPrms%l_max,-biPrms%l_max:biPrms%l_max,-biPrms%l_max:biPrms%l_max)	
+		
+		complex(8), allocatable :: coeffs(:,:,:)
+		integer :: n, l, l_1, l_2, m, m_1, m_2
+		integer :: n_max, l_max
+	
+		real(8) :: tmp
+		
+		n_max = biPrms%n_max
+		l_max = biPrms%l_max
+		
+		allocate(coeffs(1:n_max,0:l_max,-l_max:l_max))
+		
+		call globalProjector(systemState,coeffs,biPrms)
 		
 		if (all(coeffs.eq.0)) then
-			bispect_local = 0
+			bispect_global = 0
 		else
 		
 		do n=1,n_max
@@ -54,11 +162,11 @@ module bispectrum
 						do m=-l,l
 							do m_1=-l_1,l_1
 								do m_2=-l_2,l_2
-									tmp = tmp + conjg(coeffs(n,l,m))*CG_tensor(l,l_1,l_2,m,m_1,m_2)*coeffs(n,l_1,m_1)*coeffs(n,l_2,m_2)
+									tmp = tmp + RealPart(conjg(coeffs(n,l,m))*CG_tensor(l,l_1,l_2,m,m_1,m_2)*coeffs(n,l_1,m_1)*coeffs(n,l_2,m_2))
 								end do
 							end do
 						end do
-						bispect_local(n,l,l_1,l_2) = tmp
+						bispect_global(n,l,l_1,l_2) = tmp
 					end do
 				end do
 			end do
@@ -68,40 +176,35 @@ module bispectrum
 		
 		deallocate(coeffs)
 	
-	end subroutine getLocalBispectrum
+	end subroutine getGlobalBispectrum
 	
 	
 	
-	subroutine localProjector(systemState,point,coeffs,bispectParams)
+	subroutine localProjector(systemState,point,coeffs,r_c,n_max,l_max)
 	!around a general point in space, project atomic positions onto the basis functions
 	
 		implicit none
 		type(systemStateType), intent(in) :: systemState
 		type(pointType), intent(inout) :: point
-		type(bispectParamType), intent(in) :: bispectParams
-		complex(8), intent(inout) :: coeffs(:,:,:)
-
+		integer, intent(in) :: n_max
+		integer, intent(in) :: l_max
+		real(8), intent(in) :: r_c
+		complex(8), intent(inout) :: coeffs(1:n_max,0:l_max,-l_max:l_max)
 
 		
 		complex(8), allocatable :: coeffs_(:,:,:)		
 		real(8), allocatable :: polarPositions(:,:)
 		complex(8) :: temp
 		integer :: ii, n, n_1, n_2, l, m, buffer_size = 100
-		integer :: n_max, l_max
-		real(8) :: r_c
 		real(8), allocatable :: W(:,:)
 		real(8), allocatable :: inv_S(:,:)
-
+		
 
 		coeffs = complex(0.0d0,0.0d0)
 		temp = complex(0.0d0,0.0d0)
-		r_c = bispectParams%r_c
-		n_max = bispectParams%n_max
-		l_max = bispectParams%l_max
-		
 
 		
-		
+
 		call getNeighbours(systemState, point,r_c,buffer_size)
 		if (point%numNeighbours.gt.0) then
 			allocate(polarPositions(3,point%numNeighbours))
@@ -112,16 +215,19 @@ module bispectrum
 			call getW(W,n_max)
 			inv_S = invOverlap(n_max)
 			
-			call localCart2Polar(polarPositions, point)
-			!polar positions elements are order r, theta, phi
+			call localCart2Polar(polarPositions, point,systemState)
+			!print *, polarPositions
+			!polar positions elements are order r, phi, theta
 			
 			!create W here, it's independent of position, so shouldn't be recomputed all the time
-			
+			coeffs = complex(0.0d0,0.0d0)
+			coeffs_ = complex(0.0d0,0.0d0)
+
 			do l = 0,l_max
 				do m = -l,l
 					do n = 1, n_max
 						do ii = 1,point%numNeighbours
-							temp = temp + sphericalHarm(polarPositions(2,ii),polarPositions(3,ii),m,l)*radialBasis(polarPositions(1,ii),r_c,n,n_max,W)
+							temp = temp + sphericalHarm(polarPositions(3,ii),polarPositions(2,ii),m,l)*radialBasis(polarPositions(1,ii),r_c,n,n_max,W)
 						end do
 						coeffs_(n, l, m) = temp
 						temp = complex(0.0d0,0.0d0)
@@ -137,47 +243,110 @@ module bispectrum
 				end do
 			end do
 			
+
 			deallocate(polarPositions)
 			deallocate(W)
 			deallocate(coeffs_)
+			deallocate(inv_S)
+			
+
 
 		else
-			coeffs = 0
+			coeffs = complex(0.0d0,0.0d0)
+			!print *, "no neighbours, projected coefficients set to zero"
 		end if
 		call tidyPoint(point)
+			
 		
 	end subroutine localProjector
 	
 	
 	
-	subroutine globalProjector(systemState,bispectParams,coeffs)
-	!As above, but this is done around an atom, and summed over every atom
+	subroutine globalProjector(systemState,coeffs,biPrms)
+	!sets the point position to an atom position and removes the atom position from the systemState, then calculates the local bispectrum like that
 		implicit none
 		
 		type(systemStateType), intent(in) :: systemState
-		type(bispectParamType), intent(in) :: bispectParams
-		complex(8), intent(inout) :: coeffs(:,:,:)
+		type(bispectParamType), intent(in) :: biPrms
+		complex(8), intent(inout) :: coeffs(1:biPrms%n_max,0:biPrms%l_max,-biPrms%l_max:biPrms%l_max)
 		
-		integer :: ii, n_max, l_max
-		real(8) :: atomPosition(3)
+		type(systemStateType) :: tmpState
 		type(pointType) :: point
-		complex(8), allocatable :: tempCoeffs(:,:,:)
+		integer :: i, j, n_max, l_max, n_atoms
+		real(8) :: r_c
+		real(8), allocatable :: tmpAtomPosns(:,:)
+		complex(8), allocatable :: tmpCoeffs(:,:,:)
 		
-		n_max = bispectParams%n_max
-		l_max = bispectParams%l_max
+		n_max = biPrms%n_max
+		l_max = biPrms%l_max
+		r_c = biPrms%r_c
+		n_atoms = systemState%natoms
 		
-		allocate(tempCoeffs(1:n_max,0:l_max,-l_max:l_max))
+		allocate(tmpCoeffs(1:n_max,0:l_max,-l_max:l_max))
+		allocate(tmpAtomPosns(3,n_atoms-1))
 		
-		do ii = 1, systemState%nAtoms
-			point%pointPosition = systemState%atomPositions(:,ii)
-			call localProjector(systemState,point,tempCoeffs,bispectParams)
-			coeffs = coeffs + tempCoeffs
+		do i=1, n_atoms
+			!first create a system state without the central atom, and a point type centered around the central atom
+			do j=1,n_atoms
+				if (i.ne.j.and.j.gt.i) then
+					tmpAtomPosns(:,j-1) = systemState%atomPositions(:,j)
+				else if (i.ne.j.and.j.lt.i) then
+					tmpAtomPosns(:,j) = systemState%atomPositions(:,j)
+				end if
+			end do
+			call assignSystemState(tmpState,systemState%cell,tmpAtomPosns)
+			call assignPoint(point,systemState%atomPositions(:,i))
+			
+			call localProjector(tmpState,point,tmpCoeffs,r_c,n_max,l_max)
+			
+			coeffs = coeffs + tmpCoeffs
 		end do
 		
-		coeffs = coeffs/systemState%nAtoms
-			
-	
+		coeffs = coeffs/n_atoms
+		
+		deallocate(tmpCoeffs)
+		deallocate(tmpAtomPosns)
+		call tidySystem(tmpState)
+		
+		
 	end subroutine globalProjector
+			
+
+	
+	subroutine format_CG(CG_tensor_in,CG_tensor,l_max)
+	!The CG_tensor is calculated once for a given l_max in python and passed in each time to fortran (should really check if there's a better way)
+	!Since fortran indices start from 0, the CG_tensor has to be formatted to get passed into python
+	!Since I don't want to add all those little bits to the program, I'm changing the CG_tensor to the way I originally planned it
+		implicit none
+		real(8), intent(in) :: CG_tensor_in(0:l_max,0:l_max,0:l_max,0:2*l_max,0:2*l_max,0:2*l_max)
+		real(8), intent(inout) :: CG_tensor(0:l_max,0:l_max,0:l_max,-l_max:l_max,-l_max:l_max,-l_max:l_max)
+		
+		integer, intent(in) :: l_max
+		real(8) :: diff = dble(1e-5)
+		
+		integer :: l_1,m_1,l_2,m_2,l_,m_
+
+		CG_tensor = 0
+		do l_=0,l_max
+			do l_1=0,l_max
+				do l_2=0,l_max
+					do m_=-l_,l_
+						do m_1 = -l_1,l_1
+							do m_2 = -l_2,l_2
+								if (abs(CG_tensor_in(l_,l_1,l_2,m_+l_max,m_1+l_max,m_2+l_max)).lt.diff)then
+									CG_tensor(l_,l_1,l_2,m_,m_1,m_2) = 0.0
+								else
+									CG_tensor(l_,l_1,l_2,m_,m_1,m_2) = CG_tensor_in(l_,l_1,l_2,m_+l_max,m_1+l_max,m_2+l_max)
+								end if
+							end do
+						end do
+					end do
+				end do
+			end do		
+		end do		
+	end subroutine format_CG
+		
+	
 	
 	function get_CG_tensor(l_max)
 	!calculate all of the Clebsch Gordan coefficients and store them in an array
@@ -202,6 +371,8 @@ module bispectrum
 			end do		
 		end do
 	end function get_CG_tensor
+	
+	
 	
 	real(8) function CG(l_1,m_1,l_2,m_2,l,m)
 	!Pretty much all copied from Andrew Fowler's code, should go back and write myself
@@ -276,6 +447,69 @@ module bispectrum
 		end if
 	
 	end function CG
+	
+	
+	
+	function get_output_mask(n_max,l_max)
+	!returns an array of logical values so that the redundant values of the bispectrum tensor can be removed as it's flattened
+	!conditions as in https://academic.oup.com/mnras/article/318/2/584/1027450
+	!section 2 conditions (i) to (iii)
+		implicit none
+		integer, intent(in) :: n_max
+		integer, intent(in) :: l_max
+		logical, dimension(1:n_max,0:l_max,0:l_max,0:l_max) :: get_output_mask
+		integer :: n,l,l_1,l_2
+		
+		get_output_mask = .False.
+		
+		do n=1,n_max
+			do l=0,l_max
+				do l_1=0,l_max
+					do l_2=l_1,l_max !bispectrum is the same if l_1 and l_2 are swapped, so only need one
+						!condition (i): |l_1-l_2| <= l <= l_1+l_2
+						if (abs(l_1-l_2).le.l.and.l.le.l_1+l_2) then
+							if (mod(l+l_1+l_2,2).eq.0) then
+							get_output_mask(n,l,l_1,l_2) = .True.
+							end if
+						end if
+					end do
+				end do
+			end do
+		end do
+		
+		 
+	end function get_output_mask
+	
+	
+	
+	integer function bispect_length(n_max,l_max)
+	!uses the conditions in section 2 of https://academic.oup.com/mnras/article/318/2/584/1027450 
+	!figures out the length of the bispectrum array that will be returned
+		implicit none
+		integer, intent(in) :: n_max
+		integer, intent(in) :: l_max
+		integer :: counter, n,l,l_1,l_2
+		counter = 0
+	
+		do n=1,n_max
+			do l=0,l_max
+				do l_1=0,l_max
+					do l_2=l_1,l_max !bispectrum is the same if l_1 and l_2 are swapped, so only need one
+						!condition (i): |l_1-l_2| <= l <= l_1+l_2
+						if (abs(l_1-l_2).le.l.and.l.le.l_1+l_2) then
+							if (mod(l+l_1+l_2,2).eq.0) then
+								counter = counter+1
+							end if
+						end if
+					end do
+				end do
+			end do
+		end do
+		
+		bispect_length = counter
+	end function bispect_length
+		
+			
 	
 end module bispectrum
 
