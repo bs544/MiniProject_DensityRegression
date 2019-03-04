@@ -267,11 +267,15 @@ module util
 
 			posnsShifted(:,idx) = point%neighbourList(:,idx)-point%pointPosition
 			r(idx) = getDist(point%neighbourList(:,idx),point%pointPosition)
-			phi(idx) = acos(posnsShifted(3,idx)/r(idx))
-			if (abs(posnsShifted(1,idx)).gt.1e-15 .or. abs(posnsShifted(2,idx)).gt.1e-15) then
+			if (r(idx).gt.dble(1e-15)) then
+				phi(idx) = acos(posnsShifted(3,idx)/r(idx))
+			else
+				phi = 0.0d0
+			end if
+			if (abs(posnsShifted(1,idx)).gt.dble(1e-15)) then
 				theta(idx) = atan(posnsShifted(2,idx)/posnsShifted(1,idx))
 			else
-				theta(idx) = 0
+				theta(idx) = 0.0d0
 			end if
 			polarposns(1, idx) = r(idx)
 			polarposns(2, idx) = theta(idx)
@@ -345,18 +349,22 @@ module util
 	!this subroutine assumes that the array has already been allocated to the size of the largest factorial needed
 	
 		implicit none
-		integer, intent(inout) :: array(array_size)
-		integer :: ii, array_size
+		integer, intent(in) :: array_size
+		integer(8), intent(inout) :: array(0:array_size)
+		integer :: ii
 		
-		array_size = size(array)
+		!array_size = size(array)
 		
-		if (array_size.eq.0) then
-			write(*,*) "factorial_array appears to have size 0"
+		if (array_size.lt.0) then
+			write(*,*) "bad array size"
+		else if (array_size.eq.0) then
+			array(0) = 1
 		else if (array_size .eq.1) then
-			array = 1
-		else if (array_size.gt.1) then
+			array(0) = 1
 			array(1) = 1
-			do ii = 2, array_size
+		else if (array_size.gt.1) then
+			array(0) = 1
+			do ii = 1, array_size
 				array(ii) = array(ii-1)*ii
 			end do
 		end if
@@ -366,7 +374,7 @@ module util
 	
 	integer function minAbsFloor(x)
 	!floor function that returns the integer value closest to zero
-	!semi copied from Andrew Fowler's code (I looked at it before I wrote this)
+	!copied from Andrew Fowler's code
 	!see his github: https://github.com/andrew31416/densityregression and look for python_floor in spherical_harmonics.f90
 		implicit none
 		real(8), intent(in) :: x
@@ -425,13 +433,6 @@ module util
 		logical :: goodDecomp
 		
 		
-
-!~ 		allocate(R(array_size,array_size))
-!~ 		allocate(invR(array_size,array_size))
-!~ 		allocate(Lambda(array_size,array_size))
-!~ 		allocate(invSqrtLambda(array_size,array_size))
-!~ 		allocate(intermediate(array_size,array_size))
-		
 		call eigenDecomp(symmMat,R,invR,Lambda,array_size)
 		
 		goodDecomp = checkDecomp(symmMat,R,invR,Lambda,array_size)
@@ -453,12 +454,6 @@ module util
 		else
 			print *, "something went wrong with the eigenvector decomposition"
 		end if
-		
-!~ 		deallocate(R)
-!~ 		deallocate(invR)
-!~ 		deallocate(Lambda)
-!~ 		deallocate(invSqrtLambda)
-!~ 		deallocate(intermediate)
 	
 	end subroutine sqrtInvSymmMatrix
 	
@@ -481,10 +476,7 @@ module util
 		real(8), dimension(array_size) :: eigenValues
 		real(8), allocatable :: work(:)
 		
-!~ 		print *, "S:"
-!~ 		do ii = 1,array_size
-!~ 			print *, symmMat(:,ii)
-!~ 		end do
+
 		
 		isSymm = checkSquareSymm(symmMat)
 		
@@ -522,11 +514,7 @@ module util
 		else
 			print *, "Not doing eigen decomp on non symmetric matrix"
 		end if
-		
-!~ 		print *, "Lambda:"
-!~ 		do ii = 1,array_size
-!~ 			print *, Lambda(:,ii)
-!~ 		end do
+
 		
 	
 	end subroutine eigenDecomp
@@ -700,11 +688,156 @@ module util
 			end do
 		end if
 		
-	
-	
-	
 	end subroutine inverseChecker
 	
+	
+	
+	real(8) function CG(l_1,m_1,l_2,m_2,l,m,fact_array,l_max)
+	!Pretty much all copied from Andrew Fowler's code, should go back and write myself
+	!See his github here: https://github.com/andrew31416 and look for spherical_harmonics.f90
+	!This is the Clebsch-Gordan coefficient C_{l_1,m_1,l_2,m_2}^{l,m}
+	!The formula to calculate this can be found on page 238 of 'Quantum Theory of Angular Momentum' by Varshalovich
+
+		implicit none
+	
+		real(8),intent(in) :: l_1,m_1,l_2,m_2,l,m
+		integer, intent(in) :: l_max
+		integer(8), intent(in) :: fact_array(0:l_max*3)
+	
+		!* scratch
+		real(8) :: minimum,min_array(1:7),sqrtres
+		real(8) :: imin,imax,valu,sumres,sqrtarg
+		real(8) :: dble_ii
+		integer :: ii
+	
+		if (abs(m_1 + m_2 - m).gt.1e-15) then
+			CG = 0.0d0
+		else
+			min_array(1) = l_1 + l_2 - l
+			min_array(2) = l_1 - l_2 + l
+			min_array(3) = -l_1 + l_2 + l
+			min_array(4) = l_1 + l_2 + l + 1.0d0
+			min_array(5) = l_1 - abs(m_1)
+			min_array(6) = l_2 - abs(m_2)
+			min_array(7) = l - abs(m)
+	
+			minimum = minval(min_array)
+	
+			if (minimum.lt.0.0d0) then
+				CG = 0.0d0
+			else
+				sqrtarg = 1.0d0
+				sqrtarg = sqrtarg * fact_array(minAbsFloor(l_1+m_1))
+				sqrtarg = sqrtarg * fact_array(minAbsFloor(l_1-m_1))
+				sqrtarg = sqrtarg * fact_array(minAbsFloor(l_2+m_2))
+				sqrtarg = sqrtarg * fact_array(minAbsFloor(l_2-m_2))
+				sqrtarg = sqrtarg * fact_array(minAbsFloor(l+m))
+				sqrtarg = sqrtarg * fact_array(minAbsFloor(l-m))
+				sqrtarg = sqrtarg * dble((int(2.0d0*l) + 1))
+				sqrtarg = sqrtarg * fact_array(minAbsFloor(min_array(1)))
+				sqrtarg = sqrtarg * fact_array(minAbsFloor(min_array(2)))
+				sqrtarg = sqrtarg * fact_array(minAbsFloor(min_array(3)))
+	
+				! sqrtarg is int so need to divide after casting to double
+				sqrtres = sqrt(sqrtarg / fact_array(minAbsFloor(min_array(4))))
+				
+				min_array(1) = l_1 + m_2 - l
+				min_array(2) = l_2 - m_1 - l
+				min_array(3) = 0.0d0
+				min_array(4) = l_2 + m_2
+				min_array(5) = l_1 - m_1
+				min_array(6) = l_1 + l_2 - l
+	
+				imin = maxval(min_array(1:3))
+				imax = minval(min_array(4:6))
+				sumres = 0.0d0
+				do ii=minAbsFloor(imin),minAbsFloor(imax)
+					dble_ii = dble(ii)
+					valu = 1.0d0
+					valu = valu * fact_array(ii)
+					valu = valu * fact_array(minAbsFloor(l_1 + l_2 - l - dble_ii ))
+					valu = valu * fact_array(minAbsFloor(l_1 - m_1 - dble_ii ))
+					valu = valu * fact_array(minAbsFloor(l_2 + m_2 - dble_ii ))
+					valu = valu * fact_array(minAbsFloor(l - l_2 + m_1 + dble_ii ))
+					valu = valu * fact_array(minAbsFloor(l - l_1 - m_2 + dble_ii ))
+					sumres = sumres + (-1.0d0)**ii / valu
+				end do
+				CG = sqrtres * sumres
+			end if
+		end if
+		
+	
+!~ 		implicit none
+		
+!~ 		real(8), intent(in) :: l_1,m_1,l_2,m_2,l,m
+	
+!~ 		real(8) :: minimum,min_array(1:7),sqrtres
+!~ 		real(8) :: imin,imax,val,sumres,sqrtarg
+!~ 		real(8) :: dble_ii
+!~ 		integer :: ii
+	
+!~ 		if (abs(m_1 + m_2 - m).gt.1e-15) then
+!~ 			CG = 0.0d0
+!~ 		else
+!~ 			min_array(1) = l_1 + l_2 - l + 0.0d0
+!~ 			min_array(2) = l_1 - l_2 + l + 0.0d0
+!~ 			min_array(3) = -l_1 + l_2 + l + 0.0d0
+!~ 			min_array(4) = l_1 + l_2 + l + 1.0d0
+!~ 			min_array(5) = l_1 - abs(m_1) + 0.0d0
+!~ 			min_array(6) = l_2 - abs(m_2) + 0.0d0
+!~ 			min_array(7) = l - abs(m) + 0.0d0
+	
+!~ 			minimum = minval(min_array)
+	
+!~ 			if (minimum.lt.0.0d0) then
+!~ 				CG = 0.0d0
+!~ 			else
+				
+!~ 				sqrtarg = 1.0d0
+!~ 				sqrtarg = sqrtarg * factorial(minAbsFloor(l_1+m_1))!+ 0.0d0))
+!~ 				sqrtarg = sqrtarg * factorial(minAbsFloor(l_1-m_1))!+ 0.0d0))
+!~ 				sqrtarg = sqrtarg * factorial(minAbsFloor(l_2+m_2))!+ 0.0d0))
+!~ 				sqrtarg = sqrtarg * factorial(minAbsFloor(l_2-m_2))!+ 0.0d0))
+!~ 				sqrtarg = sqrtarg * factorial(minAbsFloor(l+m))!+ 0.0d0))
+!~ 				sqrtarg = sqrtarg * factorial(minAbsFloor(l-m))!+ 0.0d0))
+!~ 				sqrtarg = sqrtarg * dble((int(2.0d0*l) + 1))
+!~ 				sqrtarg = sqrtarg * factorial(minAbsFloor(min_array(1)))
+!~ 				sqrtarg = sqrtarg * factorial(minAbsFloor(min_array(2)))
+!~ 				sqrtarg = sqrtarg * factorial(minAbsFloor(min_array(3)))
+				
+!~ 				! sqrtarg is int so need to divide after casting to double
+!~ 				sqrtres = sqrt(sqrtarg / factorial(minAbsFloor(min_array(4))))
+				
+!~ 				print *, sqrtarg
+!~ 				print *, factorial(minAbsFloor(min_array(4)))
+				
+!~ 				min_array(1) = l_1 + m_2 - l!+ 0.0d0
+!~ 				min_array(2) = l_2 - m_1 - l!+ 0.0d0
+!~ 				min_array(3) = 0.0d0
+!~ 				min_array(4) = l_2 + m_2!+ 0.0d0
+!~ 				min_array(5) = l_1 - m_1!+ 0.0d0
+!~ 				min_array(6) = l_1 + l_2 - l!+ 0.0d0
+				
+!~ 				imin = maxval(min_array(1:3))
+!~ 				imax = minval(min_array(4:6))
+!~ 				sumres = 0.0d0
+!~ 				do ii=minAbsFloor(imin),minAbsFloor(imax)
+!~ 					dble_ii = dble(ii)
+!~ 					val = 1.0d0
+!~ 					val = val * factorial(ii)
+!~ 					val = val * factorial(minAbsFloor(l_1 + l_2 - l - dble_ii ))
+!~ 					val = val * factorial(minAbsFloor(l_1 - m_1 - dble_ii ))
+!~ 					val = val * factorial(minAbsFloor(l_2 + m_2 - dble_ii ))
+!~ 					val = val * factorial(minAbsFloor(l - l_2 + m_1 + dble_ii ))
+!~ 					val = val * factorial(minAbsFloor(l - l_1 - m_2 + dble_ii ))
+!~ 					sumres = sumres + (-1.0d0)**ii / val
+!~ 				end do
+!~ 				print *, sumres
+!~ 				CG = sqrtres * sumres
+!~ 			end if
+!~ 		end if
+	
+	end function CG	
 	
 	
 end module util

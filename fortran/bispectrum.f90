@@ -1,9 +1,10 @@
 module bispectrum
 	use util
-	use basis, only: sphericalHarm, radialBasis, overlapMatrix
+	use basis, only: sphericalHarm, radialBasis, overlapMatrix, getW
 	use neighbours
 	implicit none
 	!bispectrum computed as in PHYSICAL REVIEW B 87, 184115 (2013)
+	!To do: check that the thetas and phis are in the right place for the spherical harmonic
 
 	public getLocalBispectrum
 	public get_CG_tensor
@@ -13,7 +14,7 @@ module bispectrum
 	
 	
 	
-	function getBispectrum(n_max,l_max,r_c, atomPositions,cell,nAtoms,pointPosition,CG_tensor_in,array_length,local)
+	function getBispectrum(n_max,l_max,r_c, atomPositions,cell,nAtoms,pointPosition,W,inv_S,CG_tensor_in,array_length,local)
 	!gets the local or global bispectrum, depending on the logical value local
 	!returns a vector array, but you'll need to remove the zero values elsewhere
 		implicit none
@@ -24,6 +25,8 @@ module bispectrum
 		real(8), intent(in) :: cell(3,3)
 		integer, intent(in) :: nAtoms
 		real(8), intent(in) :: pointPosition(3)
+		real(8), intent(in) :: W(n_max,n_max)
+		real(8), intent(in) :: inv_S(n_max,n_max)
 		real(8), intent(in) :: CG_tensor_in(0:l_max,0:l_max,0:l_max,0:2*l_max,0:2*l_max,0:2*l_max)
 		integer, intent(in) :: array_length
 		logical, intent(in) :: local
@@ -36,9 +39,13 @@ module bispectrum
 		real(8), dimension(1:n_max,0:l_max,0:l_max,0:l_max) :: bispect_tensor
 		real(8), dimension(array_length) :: getBispectrum
 		logical, dimension(1:n_max,0:l_max,0:l_max,0:l_max) :: mask
+		integer :: n,l,l_1,l_2
+		!real(8) :: check
 		
 		mask = get_output_mask(n_max,l_max)	
-			
+		
+		!check = CG(4+0.0d0,4+0.0d0,4+0.0d0,0+0.0d0,4+0.0d0,4+0.0d0)
+		!print *, check
 		
 		call assignBispectParams(bispectParams,r_c,l_max,n_max)
 		call format_CG(CG_tensor_in,CG_tensor,l_max)
@@ -47,15 +54,23 @@ module bispectrum
 		
 		
 		if (local) then
-			call getLocalBispectrum(systemState,point,bispectParams,bispect_tensor,CG_tensor)
+			call getLocalBispectrum(systemState,point,bispectParams,bispect_tensor,W,inv_S,CG_tensor)
 		else
-			call getGlobalBispectrum(systemState,bispectParams,bispect_tensor,CG_tensor)
+			call getGlobalBispectrum(systemState,bispectParams,bispect_tensor,W,inv_S,CG_tensor)
 		end if
 		
 		!I might add a non zero mask later but I need to add a program to check the number of non zero bispectrum values
 		!write(*,*) bispect_tensor
 		getBispectrum = 0
 		getBispectrum = pack(bispect_tensor,mask)
+		
+!~ 		do n=1,n_max
+!~ 			do l=0,l_max
+!~ 				do l_1=0,l_max
+!~ 						print *, bispect_tensor(n,l,l_1,:)
+!~ 				end do
+!~ 			end do
+!~ 		end do
 		
 		call tidySystem(systemState)
 		call tidyPoint(point)
@@ -65,11 +80,13 @@ module bispectrum
 	
 	
 	
-	subroutine getLocalBispectrum(systemState,point,biPrms,bispect_local,CG_tensor)
+	subroutine getLocalBispectrum(systemState,point,biPrms,bispect_local,W,inv_S,CG_tensor)
 		implicit none
 		type(systemStateType), intent(in) :: systemState
 		type(pointType), intent(inout) :: point
 		type(bispectParamType), intent(in) :: biPrms
+		real(8), intent(in) :: W(biPrms%n_max,biPrms%n_max)
+		real(8), intent(in) :: inv_S(biPrms%n_max,biPrms%n_max)
 		real(8), intent(inout) :: bispect_local(1:biPrms%n_max,0:biPrms%l_max,0:biPrms%l_max,0:biPrms%l_max)
 		real(8), intent(in) :: CG_tensor(0:biPrms%l_max,0:biPrms%l_max,0:biPrms%l_max,&
 		-biPrms%l_max:biPrms%l_max,-biPrms%l_max:biPrms%l_max,-biPrms%l_max:biPrms%l_max)	
@@ -94,14 +111,14 @@ module bispectrum
 		allocate(coeffs(1:n_max,0:l_max,-l_max:l_max))
 		coeffs = complex(0.0d0,0.0d0)
 				
-		call localProjector(systemState,point,coeffs,r_c,n_max,l_max)
+		call localProjector(systemState,point,coeffs,W,inv_S,r_c,n_max,l_max)
 		
 		if (all(coeffs.eq.complex(0.0d0,0.0d0))) then
 			bispect_local = 0
 			!print *, "zero coefficients"
 		else
 		
-		bispect_local = 0
+		bispect_local = 0.0d0
 
 		do n=1,n_max
 			do l=0,l_max
@@ -121,6 +138,8 @@ module bispectrum
 			end do
 		end do	
 		end if
+		
+
 				
 		deallocate(coeffs)
 
@@ -129,10 +148,12 @@ module bispectrum
 	
 	
 	
-	subroutine getGlobalBispectrum(systemState,biPrms,bispect_global,CG_tensor)
+	subroutine getGlobalBispectrum(systemState,biPrms,bispect_global,W,inv_S,CG_tensor)
 		implicit none
 		type(systemStateType), intent(in) :: systemState
 		type(bispectParamType), intent(in) :: biPrms
+		real(8), intent(in) :: W(biPrms%n_max,biPrms%n_max)
+		real(8), intent(in) :: inv_S(biPrms%n_max,biPrms%n_max)
 		real(8), intent(inout) :: bispect_global(1:biPrms%n_max,0:biPrms%l_max,0:biPrms%l_max,0:biPrms%l_max)
 		real(8), intent(in) :: CG_tensor(0:biPrms%l_max,0:biPrms%l_max,0:biPrms%l_max,&
 		-biPrms%l_max:biPrms%l_max,-biPrms%l_max:biPrms%l_max,-biPrms%l_max:biPrms%l_max)	
@@ -148,7 +169,7 @@ module bispectrum
 		
 		allocate(coeffs(1:n_max,0:l_max,-l_max:l_max))
 		
-		call globalProjector(systemState,coeffs,biPrms)
+		call globalProjector(systemState,coeffs,W,inv_S,biPrms)
 		
 		if (all(coeffs.eq.0)) then
 			bispect_global = 0.0d0
@@ -180,7 +201,7 @@ module bispectrum
 	
 	
 	
-	subroutine localProjector(systemState,point,coeffs,r_c,n_max,l_max)
+	subroutine localProjector(systemState,point,coeffs,W,inv_S,r_c,n_max,l_max)
 	!around a general point in space, project atomic positions onto the basis functions
 	
 		implicit none
@@ -189,6 +210,8 @@ module bispectrum
 		integer, intent(in) :: n_max
 		integer, intent(in) :: l_max
 		real(8), intent(in) :: r_c
+		real(8), intent(in) :: W(n_max,n_max)
+		real(8), intent(in) :: inv_S(n_max,n_max)
 		complex(8), intent(inout) :: coeffs(1:n_max,0:l_max,-l_max:l_max)
 
 		
@@ -196,23 +219,19 @@ module bispectrum
 		real(8), allocatable :: polarPositions(:,:)
 		complex(8) :: temp
 		integer :: ii, n, n_1, n_2, l, m, buffer_size = 100
-		real(8), dimension(n_max,n_max) :: W
-		real(8), dimension(n_max,n_max) :: inv_S
+!~ 		real(8), dimension(n_max,n_max) :: W
+!~ 		real(8), dimension(n_max,n_max) :: inv_S
 		
 
 		coeffs = complex(0.0d0,0.0d0)
 		temp = complex(0.0d0,0.0d0)
 
-		
-
 		call getNeighbours(systemState, point,r_c,buffer_size)
 		if (point%numNeighbours.gt.0) then
 			allocate(polarPositions(3,point%numNeighbours))
 
-			
-			call getW(W,n_max)
-			inv_S = invOverlap(n_max)
-			
+!~ 			call getW(W,n_max)
+!~ 			inv_S = invOverlap(n_max)
 			
 			call localCart2Polar(polarPositions, point,systemState)
 			!print *, polarPositions
@@ -241,13 +260,8 @@ module bispectrum
 					end do
 				end do
 			end do
-			
 
 			deallocate(polarPositions)
-!~ 			deallocate(W)
-!~ 			deallocate(coeffs_)
-!~ 			deallocate(inv_S)
-			
 
 
 		else
@@ -261,12 +275,14 @@ module bispectrum
 	
 	
 	
-	subroutine globalProjector(systemState,coeffs,biPrms)
+	subroutine globalProjector(systemState,coeffs,W,inv_S,biPrms)
 	!sets the point position to an atom position and removes the atom position from the systemState, then calculates the local bispectrum like that
 		implicit none
 		
 		type(systemStateType), intent(in) :: systemState
 		type(bispectParamType), intent(in) :: biPrms
+		real(8), intent(in) :: W(biPrms%n_max,biPrms%n_max)
+		real(8), intent(in) :: inv_S(biPrms%n_max,biPrms%n_max)
 		complex(8), intent(inout) :: coeffs(1:biPrms%n_max,0:biPrms%l_max,-biPrms%l_max:biPrms%l_max)
 		
 		type(systemStateType) :: tmpState
@@ -285,8 +301,8 @@ module bispectrum
 		allocate(tmpAtomPosns(3,n_atoms-1))
 		
 		tmpAtomPosns = 0.0d0
-		tmpCoeffs = 0.0d0
-		coeffs = 0.0d0
+		tmpCoeffs = complex(0.0d0,0.0d0)
+		coeffs = complex(0.0d0,0.0d0)
 		do ii=1, n_atoms
 			!first create a system state without the central atom, and a point type centered around the central atom
 			do jj=1,n_atoms
@@ -299,8 +315,8 @@ module bispectrum
 			call assignSystemState(tmpState,systemState%cell,tmpAtomPosns)
 			call assignPoint(point,systemState%atomPositions(:,ii))
 			
-			tmpCoeffs = 0.0d0			
-			call localProjector(tmpState,point,tmpCoeffs,r_c,n_max,l_max)
+			tmpCoeffs = complex(0.0d0,0.0d0)			
+			call localProjector(tmpState,point,tmpCoeffs,W,inv_S,r_c,n_max,l_max)
 			
 			coeffs = coeffs + tmpCoeffs
 		end do
@@ -355,9 +371,15 @@ module bispectrum
 	!calculate all of the Clebsch Gordan coefficients and store them in an array
 		implicit none
 		integer, intent(in) :: l_max
-		real(8), dimension(0:l_max,0:l_max,0:l_max,0:2*l_max,0:2*l_max,0:2*l_max) :: get_CG_tensor !note that m value doesn't correspond with index, this is to get to python
+		real(8), dimension(0:l_max,0:l_max,0:l_max,0:2*l_max,0:2*l_max,0:2*l_max) :: get_CG_tensor!note that m value doesn't correspond with index, this is to get to python
 		!should have dimensions (0:l_max,0:l_max,0:lmax,-l_max:l_max,-l_max:l_max,-l_max:l_max)
 		integer :: l_,l_1,l_2,m_,m_1,m_2
+		integer(8) :: fact_array(0:l_max*4)
+		integer :: cntr = 0
+		integer :: tot_cntr = 0
+		
+		get_CG_tensor = 0.0d0
+		call factorial_array(fact_array,l_max*4)
 		
 		do l_=0,l_max
 			do l_1=0,l_max
@@ -365,91 +387,26 @@ module bispectrum
 					do m_=-l_,l_
 						do m_1 = -l_1,l_1
 							do m_2 = -l_2,l_2
+								tot_cntr = tot_cntr + 1
 								!CG_tensor(l_,l_1,l_2,m_,m_1,m_2) = 0
-								get_CG_tensor(l_,l_1,l_2,m_+l_max,m_1+l_max,m_2+l_max) = CG(l_1,m_1,l_2,m_2,l_,m_)
+								get_CG_tensor(l_,l_1,l_2,m_+l_max,m_1+l_max,m_2+l_max) = CG(l_1+0.0d0,m_1+0.0d0,l_2+0.0d0,&
+								m_2+0.0d0,l_+0.0d0,m_+0.0d0,fact_array,l_max)
+								if (abs(CG(l_1+0.0d0,m_1+0.0d0,l_2+0.0d0,m_2+0.0d0,l_+0.0d0,m_+0.0d0,fact_array,l_max)).gt.1.0) then
+									!print *, CG(l_1+0.0d0,m_1+0.0d0,l_2+0.0d0,m_2+0.0d0,l_+0.0d0,m_+0.0d0,fact_array,l_max)
+									print *, "CG error"
+								end if
 							end do
 						end do
 					end do
 				end do
 			end do		
 		end do
+		
 	end function get_CG_tensor
 	
 	
 	
-	real(8) function CG(l_1,m_1,l_2,m_2,l,m)
-	!Pretty much all copied from Andrew Fowler's code, should go back and write myself
-	!See his github here: https://github.com/andrew31416 and look for spherical_harmonics.f90
-	!This is the Clebsch-Gordan coefficient C_{l_1,m_1,l_2,m_2}^{l,m}
-	!The formula to calculate this can be found on page 238 of 'Quantum Theory of Angular Momentum' by Varshalovich
-	
-		implicit none
-		
-		integer, intent(in) :: l_1,m_1,l_2,m_2,l,m
-	
-		real(8) :: minimum,min_array(1:7),sqrtres
-		real(8) :: imin,imax,val,sumres,sqrtarg
-		real(8) :: dble_ii
-		integer :: ii
-	
-		if (abs(m_1 + m_2 - m).gt.1e-15) then
-			CG = 0.0d0
-		else
-			min_array(1) = l_1 + l_2 - l + 0.0d0
-			min_array(2) = l_1 - l_2 + l + 0.0d0
-			min_array(3) = -l_1 + l_2 + l + 0.0d0
-			min_array(4) = l_1 + l_2 + l + 1.0d0
-			min_array(5) = l_1 - abs(m_1) + 0.0d0
-			min_array(6) = l_2 - abs(m_2) + 0.0d0
-			min_array(7) = l - abs(m) + 0.0d0
-	
-			minimum = minval(min_array)
-	
-			if (minimum.lt.0.0d0) then
-				CG = 0.0d0
-			else
-				
-				sqrtarg = 1.0d0
-				sqrtarg = sqrtarg * factorial(minAbsFloor(l_1+m_1+ 0.0d0))
-				sqrtarg = sqrtarg * factorial(minAbsFloor(l_1-m_1+ 0.0d0))
-				sqrtarg = sqrtarg * factorial(minAbsFloor(l_2+m_2+ 0.0d0))
-				sqrtarg = sqrtarg * factorial(minAbsFloor(l_2-m_2+ 0.0d0))
-				sqrtarg = sqrtarg * factorial(minAbsFloor(l+m+ 0.0d0))
-				sqrtarg = sqrtarg * factorial(minAbsFloor(l-m+ 0.0d0))
-				sqrtarg = sqrtarg * dble((int(2.0d0*l) + 1))
-				sqrtarg = sqrtarg * factorial(minAbsFloor(min_array(1)))
-				sqrtarg = sqrtarg * factorial(minAbsFloor(min_array(2)))
-				sqrtarg = sqrtarg * factorial(minAbsFloor(min_array(3)))
-				
-				! sqrtarg is int so need to divide after casting to double
-				sqrtres = sqrt(sqrtarg / factorial(minAbsFloor(min_array(4))))
-				
-				min_array(1) = l_1 + m_2 - l+ 0.0d0
-				min_array(2) = l_2 - m_1 - l+ 0.0d0
-				min_array(3) = 0.0d0
-				min_array(4) = l_2 + m_2+ 0.0d0
-				min_array(5) = l_1 - m_1+ 0.0d0
-				min_array(6) = l_1 + l_2 - l+ 0.0d0
-				
-				imin = maxval(min_array(1:3))
-				imax = minval(min_array(4:6))
-				sumres = 0.0d0
-				do ii=minAbsFloor(imin),minAbsFloor(imax)
-					dble_ii = dble(ii)
-					val = 1.0d0
-					val = val * factorial(ii)
-					val = val * factorial(minAbsFloor(l_1 + l_2 - l - dble_ii ))
-					val = val * factorial(minAbsFloor(l_1 - m_1 - dble_ii ))
-					val = val * factorial(minAbsFloor(l_2 + m_2 - dble_ii ))
-					val = val * factorial(minAbsFloor(l - l_2 + m_1 + dble_ii ))
-					val = val * factorial(minAbsFloor(l - l_1 - m_2 + dble_ii ))
-					sumres = sumres + (-1.0d0)**ii / val
-				end do
-				CG = sqrtres * sumres
-			end if
-		end if
-	
-	end function CG
+
 	
 	
 	
@@ -539,25 +496,15 @@ module bispectrum
 	end function invOverlap
 	
 		
-		
-	subroutine getW(W,n_max)
-	!gets the matrix used to combine the phi values to get the radial basis
-	!First get the overlap matrix, then do an eigenvalue decomposition S = R L R^-1
-	!Where R is a unitary matrix and L is the matrix of eigenvalues
-	!S^0.5 = R L^0.5 R^-1 since the square of a matrix has the same eigenvectors, with a squared eigenvalues
-	!S^-1 = R L^-1 R^-1
-	!Thus S^-0.5 = R L^-0.5 R^-1
+	function invSqrtOverlap(n_max)
+	!just something to present getW as a function without changing anything too much
 		implicit none
-		real(8), intent(inout) :: W(:,:)
 		integer, intent(in) :: n_max
+		real(8), dimension(n_max,n_max) :: invSqrtOverlap
 		
-		real(8) :: overlap(n_max,n_max)!, eigenValues(n_max,n_max)
-		overlap = overlapMatrix(n_max)
+		call getW(invSqrtOverlap,n_max)
 		
-		call sqrtInvSymmMatrix(overlap,W,n_max)
-	
-	end subroutine getW			
-	
+	end function invSqrtOverlap
 	
 	
 end module bispectrum

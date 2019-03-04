@@ -12,4 +12,4 @@ basis.o : basis.f90 util.o
 	gfortran -c basis.f90 util.o -o basis.o -fPIC -Wall -Wno-tabs -O2
 
 util.o : util.f90
-	gfortran -c util.f90 -fPIC -lblas -llapack -Wall -Wno-tabs -O2
+	gfortran -c util.f90 -fPIC -lblas -llapack -Wall -Wno-tabs 

@@ -6,6 +6,7 @@ module basis
 	public sphericalHarm
 	public radialBasis
 	public overlapMatrix
+	public getW
 
 	contains
 	
@@ -63,7 +64,7 @@ module basis
 		real(8) :: tmp1, tmp2, diff, coeff1, coeff2
 		real(8) :: factor
 		
-
+		legendre = 0.0d0
 		if (m.lt.0) then
 			m_ = -1*m
 			factor = (-1)**m_ * factorial(l-m_)/(factorial(l+m_)+0.0d0)
@@ -95,6 +96,9 @@ module basis
 			end do
 		end if
 		legendre = factor*legendre
+		
+		!print *, p_mm(m_,x)
+		
 	end function legendre
 	
 	real(8) function p_mm(m,x)
@@ -139,6 +143,8 @@ module basis
 		real(8) :: P_lm, factor
 		complex(8) :: comp_exp
 		real(8) :: pi = 4*atan(1.0d0)
+		
+		sphericalHarm = complex(0.0d0,0.0d0)
 		
 		P_lm = legendre(m,l,cos(theta))
 		comp_exp = exp(complex(0,m*phi))
@@ -203,7 +209,26 @@ module basis
 	
 	end function overlapMatrix
 	
+
+
+	subroutine getW(W,n_max)
+	!gets the matrix used to combine the phi values to get the radial basis
+	!First get the overlap matrix, then do an eigenvalue decomposition S = R L R^-1
+	!Where R is a unitary matrix and L is the matrix of eigenvalues
+	!S^0.5 = R L^0.5 R^-1 since the square of a matrix has the same eigenvectors, with a squared eigenvalues
+	!S^-1 = R L^-1 R^-1
+	!Thus S^-0.5 = R L^-0.5 R^-1
+		implicit none
+		integer, intent(in) :: n_max
+		real(8), intent(inout) :: W(n_max,n_max)
+
+		
+		real(8) :: overlap(n_max,n_max)!, eigenValues(n_max,n_max)
+		overlap = overlapMatrix(n_max)
+		
+		call sqrtInvSymmMatrix(overlap,W,n_max)
 	
+	end subroutine getW		
 
 	
 	
