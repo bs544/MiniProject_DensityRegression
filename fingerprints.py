@@ -134,6 +134,22 @@ class fingerprints():
             print('Only Bispectrum implemented at the moment, sorry. Set fingerprints.descriptor = "bispectrum"')
             return
 
+    def standardise_FP(self):
+        #centers each of the bispectrum elements about zero and sets them so their standard deviation is 1
+        #stores mean and standard deviation for use in any other data.
+        if (self.fingerprint is not None):
+            #format is [environment,bispectrum_element]
+            self.mean = self.fingerprint.mean(axis=0)
+            self.fingerprint -= self.mean
+            self.standev = np.std(self.fingerprint,axis=0)
+            self.standev.reshape((len(self.standev),1))
+            if (len(self.rawInput)==1):
+                self.fingerprint[:,:self.fplength] = self.fingerprint[:,:self.fplength]/(self.standev[None,:self.fplength]+1e-8)
+            else:
+                self.fingerprint = self.fingerprint/(self.standev[None,:]+1e-8)
+
+
+
     def plot2D(self):
         if (self.fingerprint is not None):
             #format is [environment,bispectrum element]
