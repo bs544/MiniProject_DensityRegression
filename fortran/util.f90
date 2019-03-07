@@ -256,6 +256,7 @@ module util
 		real(8), allocatable :: r(:), theta(:), phi(:), posnsShifted(:,:)
 		
 		integer :: idx!, ii
+		real(8), parameter :: pi = 4*atan(1.0d0)
 		
 		allocate(r(point%numNeighbours))
 		allocate(theta(point%numNeighbours))
@@ -274,8 +275,18 @@ module util
 			end if
 			if (abs(posnsShifted(1,idx)).gt.dble(1e-15)) then
 				theta(idx) = atan(posnsShifted(2,idx)/posnsShifted(1,idx))
-			else
-				theta(idx) = 0.0d0
+				!get theta in two negative x quadrants that are neglected
+				if(posnsShifted(1,idx).lt.0.0d0.and.posnsShifted(2,idx).lt.0.0d0) then
+					!in the bottom left quadrant
+					theta(idx) = theta(idx) - pi
+				else if(posnsShifted(1,idx).lt.0.0d0.and.posnsShifted(2,idx).ge.0.0d0) then
+					!in the top left quadrant
+					theta(idx) = theta(idx) + pi
+				end if
+			else if (posnsShifted(2,idx).ge.0.0d0) then
+				theta(idx) = pi/2.0d0!0.0d0
+			else 
+				theta(idx) = -pi/2.0d0
 			end if
 			polarposns(1, idx) = r(idx)
 			polarposns(2, idx) = theta(idx)

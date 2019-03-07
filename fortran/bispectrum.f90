@@ -253,7 +253,7 @@ module bispectrum
 					!convert c' to c
 					do n_1=1,n_max
 						do n_2=1,n_max
-							temp = temp + inv_S(n_2,n_1)*coeffs_(n_1,l,m)
+							temp = temp + inv_S(n_2,n_1)*coeffs_(n_2,l,m)
 						end do
 						coeffs(n_1,l,m) = temp
 						temp = complex(0.0d0,0.0d0)

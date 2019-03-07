@@ -14,8 +14,9 @@ class castep_data():
         self.path = dataPath
         self.data = []
         self.relevantFileTypes = ['castep','den_fmt']
+        self.threshold = 1000 # non zero threshold: if a density multiplied by this is less than the maximum density, it's pretty much zero and you don't need to include it
 
-    def get_densities(self,name):
+    def get_densities(self,name,final=True,removeZero=True):
         #returns a dictionary containing densities and positions and cell parameters taken from the .den_fmt file given
         dendict = {}
         filename = '{}{}'.format(self.path,name)
@@ -28,8 +29,20 @@ class castep_data():
         den_parser.run()
         den_cell = den_parser.get_supercells()[0]
         den = den_cell.get_edensity()
-        dendict['xyz'] = den['xyz']
-        dendict['density'] = den['density']
+
+        if (not removeZero or (not final and removeZero)):
+            if(removeZero):
+                print("keeping zero densities, they aren't saved anyway")
+            dendict['xyz'] = den['xyz']
+            dendict['density'] = den['density']
+
+        elif(final and removeZero):
+            maxden = np.amax(den['density'])
+            nonzero_indices = [i for i in range(len(den['density'])) if maxden < self.threshold*den['density'][i]]
+            dendict['xyz'] = den['xyz'][nonzero_indices]
+            dendict['density'] = den['density'][nonzero_indices]
+            dendict['nonzero_indices'] = nonzero_indices
+
 
         return dendict
 
@@ -61,6 +74,19 @@ class castep_data():
 
         return celldict
 
+    def get_diff(self,init_dict,fin_dict):
+        diff_dict = {}
+        nonzero_indices = fin_dict['nonzero_indices']
+        #check the positions match
+        if(np.array_equal(fin_dict['xyz'],init_dict['xyz'][nonzero_indices])):
+            diff_dict['xyz'] = fin_dict['xyz']
+            diff_dict["fin_density"] = fin_dict["density"]
+            diff_dict['density'] = fin_dict['density']-init_dict['density'][nonzero_indices]
+        else:
+            print('Incompatible inital and final density dictionaries')
+        return diff_dict
+
+
     def load_castepData(self):
         #returns list of dictionaries. Each dictionary contains the data of a single file
         files = os.listdir(self.path)
@@ -68,30 +94,44 @@ class castep_data():
             print('Invalid Path')
             return
         casnames = []
-        dennames = []
-        pairednames = []
+        fin_dennames = []
+        init_dennames = []
+        completenames = []
 
         #get names of .castep files and .den_fmt files
+        #there should be initial and final density files included
+        #names look like Hmol_dist1.00.den_fmt
+        #or look like Hmol_dist1.00initial.den_fmt
         for f in files:
-            fname,type = f.split('.')
+            fname,decimal,type = f.split('.')
             if (type == 'castep'):
+                fname = '{}.{}'.format(fname,decimal)
                 casnames.append(fname)
             elif (type == 'den_fmt'):
-                dennames.append(fname)
+                if (len(decimal)>2):
+                    fname = '{}.{}'.format(fname,decimal[:-7])#-7 to remove initial
+                    init_dennames.append(fname)
+                else:
+                    fname = '{}.{}'.format(fname,decimal)
+                    fin_dennames.append(fname)
             else:
                 print('Unsupported file of type {} in file'.format(type))
         #check that each .castep file has a corresponding .den_fmt file
         for name in casnames:
-            if (name not in dennames):
+            if (name not in fin_dennames or name not in init_dennames):
                 print('Unpaired file: {}.castep'.format(name))
             else:
-                pairednames.append(name)
+                completenames.append(name)
 
-        for name in pairednames:
+        for name in completenames:
             celldict = self.get_atoms('{}{}'.format(name,'.castep'))
-            dendict = self.get_densities('{}{}'.format(name,'.den_fmt'))
+            fin_dendict = self.get_densities('{}{}'.format(name,'.den_fmt'),final=True,removeZero=True)
+            init_dendict = self.get_densities('{}{}{}'.format(name,'initial','.den_fmt'),final=False,removeZero=False)
+            dendict = self.get_diff(init_dendict,fin_dendict)
             celldict.update(dendict)
             self.data.append(celldict)
+
+
 
 
 
