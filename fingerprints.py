@@ -16,6 +16,7 @@ from mpl_toolkits.mplot3d import Axes3D
 
 
 
+
 def get_f90_array(array):
     #fortran has opposite ordering for arrays to python
     #fortran : [fast, slow]
@@ -83,11 +84,14 @@ class fingerprints():
 
     def get_at_dist(self,posns):
         if(posns.shape[1]==3):
-            dist = np.linalg.norm(posns[0,:]-posns[1,:])
-            dist = round(dist,2)
+            if (posns.shape[0]==2):
+                dist = np.linalg.norm(posns[0,:]-posns[1,:])
+                dist = round(dist,2)
+            else:
+                dist=0.0
         else:
             print("Bad atom position shape")
-            dist = 1.0
+            dist = 0.0
         return dist
 
     def bispectrum(self):
@@ -109,7 +113,7 @@ class fingerprints():
         #     at_posns = (self.rawInput[i]['positions'])
         #     grid = (self.rawInput[i]['xyz'])
         #     density = (self.rawInput[i]['density'])
-
+        start = time.time()
         for i, cell_class in enumerate(self.Cells):
             cell = cell_class.cell
             elements = cell_class.at_species
@@ -119,7 +123,7 @@ class fingerprints():
             natoms = len(elements)
 
             glob_bispectrum = get_bispect(self.nmax,self.lmax,self.Rc,get_f90_array(at_posns),get_f90_array(cell),natoms,get_f90_array(grid[0,:]),self.W,self.inv_S,self.cg_tensor,self.fplength,False,self.fplength)
-            start = time.time()
+
             for j in range(self.readlength[i]):
                 #print('Iteration: {}'.format(j))
                 bispectrum = get_bispect(self.nmax,self.lmax,self.Rc,get_f90_array(at_posns),get_f90_array(cell),natoms,get_f90_array(grid[j,:]),self.W,self.inv_S,self.cg_tensor,self.fplength,True,self.fplength)

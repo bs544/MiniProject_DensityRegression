@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 
 class NetworkHandler():
-    def __init__(self,descriptor,nodes=[50,50],nNetworks=5,means_per_network=1,train_params=None,train_fraction=0.9,batch_size=50,nEpochs=150,activation="relu",name="DensityEnsemble",train_dir=None):
+    def __init__(self,descriptor,nodes=[50,50],nNetworks=3,means_per_network=1,train_params=None,train_fraction=0.9,batch_size=50,nEpochs=150,activation="sigmoid",name="DensityEnsemble",train_dir=None):
         self.nodes = nodes
         self.set_train_params(train_params)
         self.set_activation(activation)
@@ -119,20 +119,25 @@ class NetworkHandler():
         else:
             print("X and y are invalid inputs")
 
-        return
+        return X, y
 
-    def get_batches(self):
-        if (self.X_train is not None and self.y_train is not None):
-            num_train_pairs = len(self.y_train)
-            self.nBatches = int(num_train_pairs/self.batch_size)
-            self.X_batches = []
-            self.y_batches = []
-            for i in range(self.nBatches):
-                self.X_batches.append(self.X_train[i*self.batch_size:(i+1)*self.batch_size,:])
-                self.y_batches.append(self.y_train[i*self.batch_size:(i+1)*self.batch_size])
+    def get_batches(self,X,y,nBatches=None):
+        if (X is not None and y is not None):
+            X,y = self.shuffle_data_pairs(X,y)
+            num_train_pairs = len(y)
+            if (nBatches is None):
+                nBatches = int(np.floor(num_train_pairs/self.batch_size))
+                batch_size = self.batch_size
+            else:
+                batch_size = int(np.floor(num_train_pairs/nBatches))
+            X_batches = []
+            y_batches = []
+            for i in range(nBatches):
+                X_batches.append(X[i*batch_size:(i+1)*batch_size,:])
+                y_batches.append(y[i*batch_size:(i+1)*batch_size])
 
-            self.shuffle_data_pairs(self.X_train,self.y_train)
-            return
+
+            return X_batches, y_batches, nBatches
         else:
             print("need training data to get batches")
             return
@@ -167,6 +172,9 @@ class NetworkHandler():
         self.train_rmse = [[] for i in range(self.nNetworks)]
         self.test_rmse = [[] for i in range(self.nNetworks)]
 
+        X_batches, y_batches, nbatches = self.get_batches(self.X_train,self.y_train,nBatches=self.nNetworks)
+
+
         for net_index, network in enumerate(self.session["ensemble"]):
 
             if (True):
@@ -175,14 +183,18 @@ class NetworkHandler():
 
             print('Time: {}, '.format(time.time()-start),'network {}:'.format(net_index+1))
 
+            net_X_batch = X_batches[net_index]
+            net_y_batch = y_batches[net_index]
+
+
             counter = 0
             for epoch in range(self.nEpochs):
                 print('epoch {}'.format(epoch+1))
-                self.get_batches()
+                net_X_minibatches, net_y_minibatches, nbatches = self.get_batches(net_X_batch,net_y_batch)
 
-                for batch_idx in range(self.nBatches):
+                for minibatch_idx in range(nbatches):
 
-                    input = {network.in_vect:self.X_batches[batch_idx],network.target:self.y_batches[batch_idx].reshape(-1,1)}
+                    input = {network.in_vect:net_X_minibatches[minibatch_idx],network.target:net_y_minibatches[minibatch_idx].reshape(-1,1)}
 
                     trainrun,loss = self.session["tf_session"].run([network.train_op,network.loss_val],input)
 
@@ -190,7 +202,7 @@ class NetworkHandler():
                         self.loss[net_index].append(loss)
 
                     counter += 1
-                train_rmse = self.get_rmse(net_index,self.X_train,self.y_train)
+                train_rmse = self.get_rmse(net_index,net_X_batch,net_y_batch)
                 test_rmse = self.get_rmse(net_index,self.X_test,self.y_test)
                 self.train_rmse[net_index].append(train_rmse)
                 self.test_rmse[net_index].append(test_rmse)
@@ -268,7 +280,7 @@ class NetworkHandler():
             plt.plot(x,self.loss[idx])
             plt.xlabel("Number of Epochs")
             plt.ylabel("Loss Value")
-        plt.show()
+        plt.savefig('lossplot.pdf')
         return
 
     def plot_rmse(self):
@@ -279,7 +291,7 @@ class NetworkHandler():
             plt.xlabel("Number of Epochs")
             plt.ylabel("RMSE")
             plt.legend(["train RMSE","test RMSE"])
-        plt.show()
+        plt.savefig('rmseplot.pdf')
         return
 
 
