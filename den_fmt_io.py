@@ -2,6 +2,7 @@ import numpy as np
 from parsers.dft.parser_castep import parse
 #parser code courtesy of Andrew Fowler
 from parsers.structure_class import supercell
+import pickle
 import os
 import copy
 
@@ -10,11 +11,22 @@ path_ = '../CastepCalculations/DenNCells/'
 
 
 class castep_data():
-    def __init__(self,dataPath):
+    def __init__(self,dataPath,filename="castep_density_data",savedir="./data/",datalist=None):
         self.path = dataPath
         self.data = []
         self.relevantFileTypes = ['castep','den_fmt']
-        self.threshold = 1000 # non zero threshold: if a density multiplied by this is less than the maximum density, it's pretty much zero and you don't need to include it
+        self.threshold = 10000 # non zero threshold: if a density multiplied by this is less than the maximum density, it's pretty much zero and you don't need to include it
+        self.filename = filename
+        self.datadir = savedir
+        self.datalist = datalist
+        #self.set_datalist(datalist)
+
+    # def set_datalist(self,datalist):
+    #     if (datalist is None):
+    #         files = os.listdir(self.datadir)
+    #         self.datalist = [i for i in range(len(files))]
+    #     else:
+    #         self.datalist = datalist
 
     def get_densities(self,name,final=True,removeZero=True):
         #returns a dictionary containing densities and positions and cell parameters taken from the .den_fmt file given
@@ -35,6 +47,7 @@ class castep_data():
                 print("keeping zero densities, they aren't saved anyway")
             dendict['xyz'] = den['xyz']
             dendict['density'] = den['density']
+            dendict['nonzero_indices'] = [i for i in range(len(den['density']))]
 
         elif(final and removeZero):
             maxden = np.amax(den['density'])
@@ -87,8 +100,32 @@ class castep_data():
         return diff_dict
 
 
-    def load_castepData(self):
+    def load_castepData(self,load=True,save=True):
         #returns list of dictionaries. Each dictionary contains the data of a single file
+
+        if (load):
+            print("loading data from pickle file")
+            if (os.path.isdir(self.datadir)):
+                datafiles = os.listdir(self.datadir)
+                if (datafiles is None):
+                    print("Files not present, loading data from castep files")
+                else:
+                    saved_data=[]
+                    for i, file in enumerate(datafiles):
+                        if (self.datalist is None or i in self.datalist):
+                            f = open('{}{}'.format(self.datadir,file),'rb')
+                            saved_dict = pickle.load(f)
+                            f.close()
+                            keys = ["density","xyz","fin_density","cell","elements","positions"]
+                            if all(key in saved_dict.keys() for key in keys):
+                                saved_data.append(saved_dict)
+                    if (len(saved_data)==len(datafiles)):
+                        self.data = saved_data
+                        print('good load')
+                        return
+                    else:
+                        print("Invalid saved data, loading from castep files")
+
         files = os.listdir(self.path)
         if (files is None):
             print('Invalid Path')
@@ -123,13 +160,28 @@ class castep_data():
             else:
                 completenames.append(name)
 
-        for name in completenames:
-            celldict = self.get_atoms('{}{}'.format(name,'.castep'))
-            fin_dendict = self.get_densities('{}{}'.format(name,'.den_fmt'),final=True,removeZero=True)
-            init_dendict = self.get_densities('{}{}{}'.format(name,'initial','.den_fmt'),final=False,removeZero=False)
-            dendict = self.get_diff(init_dendict,fin_dendict)
-            celldict.update(dendict)
-            self.data.append(celldict)
+        for i,name in enumerate(completenames):
+            if (self.datalist is None or i in self.datalist):
+                celldict = self.get_atoms('{}{}'.format(name,'.castep'))
+                fin_dendict = self.get_densities('{}{}'.format(name,'.den_fmt'),final=True,removeZero=True)
+                init_dendict = self.get_densities('{}{}{}'.format(name,'initial','.den_fmt'),final=False,removeZero=True)
+                dendict = self.get_diff(init_dendict,fin_dendict)
+                celldict.update(dendict)
+                if (save):
+                    if (not os.path.isdir(self.datadir)):
+                        os.mkdir(self.datadir)
+                    print("Saving castep data into {}{}{}.pckl".format(self.datadir,self.filename,i))
+                    f = open('{}{}{}.pckl'.format(self.datadir,self.filename,i),'wb')
+                    pickle.dump(celldict,f)
+                    f.close()
+                self.data.append(celldict)
+        # if(save):
+        #     print("Saving castep data in {}{}".format(self.filename,'.pckl'))
+        #     f = open('{}{}'.format(self.filename,'.pckl'),'wb')
+        #     pickle.dump(self.data,f)
+        #     f.close()
+        # return
+
 
 
 

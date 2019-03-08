@@ -4,6 +4,7 @@ import numpy as np
 import pickle
 import os
 import time
+import matplotlib.pyplot as plt
 
 #hefty chunks copied outright from Andrew Fowler's code:
 #    https://github.com/andrew31416/
@@ -12,7 +13,7 @@ import time
 
 
 class NetworkHandler():
-    def __init__(self,descriptor,nodes=[10,10],nNetworks=3,means_per_network=1,train_params=None,train_fraction=0.2,batch_size=500,nEpochs=15,activation="relu",name="DensityEnsemble"):
+    def __init__(self,descriptor,nodes=[50,50],nNetworks=5,means_per_network=1,train_params=None,train_fraction=0.9,batch_size=50,nEpochs=150,activation="relu",name="DensityEnsemble",train_dir=None):
         self.nodes = nodes
         self.set_train_params(train_params)
         self.set_activation(activation)
@@ -21,12 +22,17 @@ class NetworkHandler():
         self.batch_size = 500
         self.nEpochs = nEpochs
         self.name=name
+        self.trained = False
+        if (train_dir is not None):
+            self.train_dir=train_dir
+        else:
+            self.train_dir = './train_data/'
         self.set_descriptor(descriptor)#should already have n_max and l_max and all the rest initialised
         self.train_fraction = train_fraction
 
     def set_train_params(self,train_params):
         #sets parameters for the NN training run
-        default_params = {"learning_rate":0.01,"optimizer":"rmsprop"}#can't think of any more at the moment
+        default_params = {"learning_rate":0.00005,"optimizer":"rmsprop"}#can't think of any more at the moment
         self.train_params = default_params
         if (train_params is not None and isinstance(train_params,dict)):
             for key in train_params.keys():
@@ -63,15 +69,14 @@ class NetworkHandler():
         #get the fingerprints and densities, randomly shuffle them and assign them to training or testing according to the train fraction
 
         #get the densities from the castep output
-        self.descriptor.Load_data('../CastepCalculations/DenNCells/')
+        self.descriptor.Load_data(self.train_dir)
 
-        #check if the fingerprints have already been calculated
-        loaded = self.descriptor.Load_FP()
-        if (not loaded):
-            self.descriptor.get_FP(save=True)
+        #get fingerprints
+        self.descriptor.get_FP(save=True)
 
         #center data on zero and standardise
         self.descriptor.standardise_FP()
+        self.y_mean,self.y_std = self.descriptor.analyse_densities()
 
         #randomly shuffle densities and fingerprints in the same way
         indices = np.random.choice(range(len(self.descriptor.density)),len(self.descriptor.density),replace=False)
@@ -144,7 +149,7 @@ class NetworkHandler():
             self.nMeans_per_network = 1
             out_nodes=[2]
 
-        self.session["ensemble"] = [Network(self.nodes,out_nodes,self.fplength,self.train_params,index=i) for i in range(self.nNetworks)]
+        self.session["ensemble"] = [Network(self.nodes,out_nodes,self.fplength,self.train_params,index=i,activation=self.activation) for i in range(self.nNetworks)]
 
         return
 
@@ -159,8 +164,14 @@ class NetworkHandler():
         self.session["tf_session"].run(tf.global_variables_initializer())
 
         self.loss = [[] for i in range(self.nNetworks)]
+        self.train_rmse = [[] for i in range(self.nNetworks)]
+        self.test_rmse = [[] for i in range(self.nNetworks)]
 
         for net_index, network in enumerate(self.session["ensemble"]):
+
+            if (True):
+                self.session["tf_session"].run(tf.assign(network.output_mean,self.y_mean))
+                self.session["tf_session"].run(tf.assign(network.output_std,self.y_std))
 
             print('Time: {}, '.format(time.time()-start),'network {}:'.format(net_index+1))
 
@@ -179,9 +190,18 @@ class NetworkHandler():
                         self.loss[net_index].append(loss)
 
                     counter += 1
-                rmse = self.get_rmse(net_index,self.X_train,self.y_train)
-                print('rmse: {}'.format(rmse))
+                train_rmse = self.get_rmse(net_index,self.X_train,self.y_train)
+                test_rmse = self.get_rmse(net_index,self.X_test,self.y_test)
+                self.train_rmse[net_index].append(train_rmse)
+                self.test_rmse[net_index].append(test_rmse)
+                print('test rmse: {}'.format(train_rmse))
+                print('loss: {}'.format(loss))
+            self.loss[net_index] = np.asarray(self.loss[net_index])
+            self.train_rmse[net_index] = np.asarray(self.train_rmse[net_index])
+            self.test_rmse[net_index] = np.asarray(self.test_rmse[net_index])
         print('Training finished, total time: {}'.format(time.time()-start))
+        self.trained = True
+
         if(save):
             self.save()
 
@@ -203,33 +223,64 @@ class NetworkHandler():
 
         return
 
-    def predict(self,X,nNetworks=None,net_idx=[0],rmse=False):
+    def predict(self,X,nNetworks=None,standard=True):
+        #standard is set to false if the incoming data wasn't centered on zero and its standard deviation set to 1 with the initial training data
         if (nNetworks is None):
             nNetworks = self.nNetworks
-            net_idx = range(nNetworks)
-        elif(len(net_idx) != nNetworks):
-                print("incompatible index list")
 
-        mean = np.zeros((nNetworks,X.shape[0]))
-        std = np.zeros((nNetworks,X.shape[0]))
+        if (not standard):
+            X -= self.descriptor.mean
+            X = X/(self.descriptor.standev[None,:]+1e-8)
+
+        net_idx = range(nNetworks)
+
+        mean = np.zeros((X.shape[0],nNetworks))
+        std = np.zeros((X.shape[0],nNetworks))
+
+
         for idx,network in enumerate(self.session["ensemble"]):
             if (idx in net_idx):
                 input = {network.in_vect:X}
-                mean[:,net_idx],std[:,idx] = self.session["tf_session"].run([network.mean,network.std],input)
+                mean[:,idx],std[:,idx] = self.session["tf_session"].run([network.mean,network.std],input)
+
         ensemble_mean = mean.mean(axis=0)
         ensemble_std = np.sqrt((np.sum(np.square(mean)-np.square(ensemble_mean),axis=0)+np.sum(np.square(std),axis=0))/self.nNetworks)
 
-        if (rmse):
-            return mean
-        else:
-            return ensemble_mean,ensemble_std
+
+        return ensemble_mean,ensemble_std
 
     def get_rmse(self,network_index,X,y):
-        mean= self.predict(X,nNetworks=1,net_idx=[network_index],rmse=True)
-        rmse = np.sqrt(np.mean(np.square(mean-y),axis=1))
+        mean = np.zeros((X.shape[0],1))
+        std = np.zeros((X.shape[0],1))
+
+        network = self.session["ensemble"][network_index]
+        input = {network.in_vect:X}
+        mean, std = self.session["tf_session"].run([network.mean,network.std],input)
+
+        error = mean-y.reshape(-1,1)
+        mse = np.mean(np.square(error))
+        rmse = np.sqrt(mse)
         return rmse
 
+    def plot_loss(self):
+        x = np.linspace(1/len(self.loss[0]),self.nEpochs,len(self.loss[0]))
+        for idx in range(self.nNetworks):
+            plt.plot(x,self.loss[idx])
+            plt.xlabel("Number of Epochs")
+            plt.ylabel("Loss Value")
+        plt.show()
+        return
 
+    def plot_rmse(self):
+        x = np.linspace(1,self.nEpochs,len(self.train_rmse[0]))
+        for idx in range(self.nNetworks):
+            plt.plot(x,self.train_rmse[idx],'r')
+            plt.plot(x,self.test_rmse[idx],'b')
+            plt.xlabel("Number of Epochs")
+            plt.ylabel("RMSE")
+            plt.legend(["train RMSE","test RMSE"])
+        plt.show()
+        return
 
 
 
@@ -250,6 +301,10 @@ class Network():
             self.name = name
         self.dtype = tf.float64
         self.train_params = train_params
+        if (True):
+            with tf.variable_scope('{}{}'.format(self.name,"targets")):
+                self.output_mean = tf.Variable(0.0,trainable=False,dtype=self.dtype)
+                self.output_std = tf.Variable(0.1,trainable=False,dtype=self.dtype)
         self.set_activation(activation)
         self.setup()
 
@@ -326,6 +381,9 @@ class Network():
                 self.mixweight = tf.cast(1.0,dtype=self.dtype)
 
             self.std = tf.add(tf.nn.softplus(self.std),tf.fill(dims=tf.shape(self.std),value=tf.cast(1e-8,dtype=self.dtype)))
+            if (True):
+                self.mean = tf.add(tf.multiply(self.mean,tf.fill(dims=tf.shape(self.mean),value=self.output_std)),tf.fill(dims=tf.shape(self.mean),value=self.output_mean))
+                self.std = tf.multiply(self.std,tf.fill(dims=tf.shape(self.mean),value=self.output_std**2))
 
             self.loss_val = lossFn(self.target,self.mean,self.std,self.mixweight,self.numNetworks)
 
