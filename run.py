@@ -15,20 +15,3 @@ N.load()
 for i in range(N.nNetworks):
 	rmse = N.get_rmse(i,N.X_test,N.y_test)
 	print(rmse)
-
-# def taper(x,x_cut,scale):
-#     x_prime = (x_cut - x)/scale
-#     #zeros = np.zeros((x_prime.shape))
-#     x_prime = np.where(x_prime>=0,x_prime,0)
-#     x_prime4 = x_prime**4
-#     taper = x_prime4/(1+x_prime4)
-#     return taper
-#
-# x = np.linspace(0.0,0.15,1500)
-# x_cut = 0.1
-# scale = np.linspace(0.001,0.01,10)
-# for x_scale in scale:
-#     tap = taper(x,x_cut,x_scale)
-#     plt.plot(x,tap)
-#     print(x_scale)
-#     plt.show()

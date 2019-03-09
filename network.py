@@ -1,5 +1,5 @@
 import tensorflow as tf
-from fingerprints import fingerprints
+from .fingerprints import fingerprints
 import numpy as np
 import pickle
 import os
@@ -23,7 +23,8 @@ class NetworkHandler():
         self.nEpochs = nEpochs
         self.name=name
         self.trained = False
-        if (train_dir is not None):
+        self.loaded = False
+        if (train_dir is not None):        self.setupNetwork()
             self.train_dir=train_dir
         else:
             self.train_dir = './train_data/'
@@ -236,6 +237,11 @@ class NetworkHandler():
         return
 
     def load(self):
+        self.loaded = False
+
+        if (not os.path.isdir(self.name)):
+            print("Ensemble Directory Not present")
+            return
 
         self.session = {"tf_session":None,"ensemble":None,"saver":None}
 
@@ -251,7 +257,7 @@ class NetworkHandler():
 
         print("Network Ensemble Loaded")
 
-
+        self.loaded = True
         return
 
     def predict(self,X,nNetworks=None,standard=True):
