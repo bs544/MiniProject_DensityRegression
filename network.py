@@ -53,7 +53,7 @@ class NetworkHandler():
 
     def set_descriptor(self,descriptor):
 
-        if (isinstance(descriptor,fingerprints)):
+        if (isinstance(descriptor,fingerprints) or "lmax" in descriptor.__dict__.keys()): #figure out how to get the isinstance thing working when the descriptor is imported through a module
             self.descriptor = descriptor
             self.fplength = self.descriptor.fplength
         else:
@@ -232,6 +232,25 @@ class NetworkHandler():
         pickle.dump(network_dict,f)
 
         self.session["saver"].save(self.session["tf_session"],'./{}/{}'.format(self.name,self.name))
+
+        return
+
+    def load(self):
+
+        self.session = {"tf_session":None,"ensemble":None,"saver":None}
+
+        self.setup_ensemble()
+        self.session["tf_session"] = tf.Session()
+
+        self.session["saver"] = tf.train.Saver([_v for _v in tf.global_variables() if "RMSProp" not in _v.name])
+
+        self.session["tf_session"] = tf.Session()
+        self.session["tf_session"].run(tf.global_variables_initializer())
+
+        self.session["saver"].restore(self.session["tf_session"],'./{}/{}'.format(self.name,self.name))
+
+        print("Network Ensemble Loaded")
+
 
         return
 
