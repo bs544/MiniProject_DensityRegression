@@ -1,5 +1,5 @@
 import tensorflow as tf
-from .fingerprints import fingerprints
+from fingerprints import fingerprints
 import numpy as np
 import pickle
 import os
@@ -24,7 +24,7 @@ class NetworkHandler():
         self.name=name
         self.trained = False
         self.loaded = False
-        if (train_dir is not None):        self.setupNetwork()
+        if (train_dir is not None):
             self.train_dir=train_dir
         else:
             self.train_dir = './train_data/'
@@ -278,10 +278,12 @@ class NetworkHandler():
         for idx,network in enumerate(self.session["ensemble"]):
             if (idx in net_idx):
                 input = {network.in_vect:X}
-                mean[:,idx],std[:,idx] = self.session["tf_session"].run([network.mean,network.std],input)
+                mean_,std_ = self.session["tf_session"].run([network.mean,network.std],input)
+                mean[:,idx] = mean_[:,0]
+                std[:,idx] = std_[:,0]
 
-        ensemble_mean = mean.mean(axis=0)
-        ensemble_std = np.sqrt((np.sum(np.square(mean)-np.square(ensemble_mean),axis=0)+np.sum(np.square(std),axis=0))/self.nNetworks)
+        ensemble_mean = mean.mean(axis=1)
+        ensemble_std = np.sqrt((np.sum(np.square(mean)-np.square(ensemble_mean[:,None]),axis=1)+np.sum(np.square(std),axis=1))/self.nNetworks)
 
 
         return ensemble_mean,ensemble_std
@@ -306,6 +308,7 @@ class NetworkHandler():
             plt.xlabel("Number of Epochs")
             plt.ylabel("Loss Value")
         plt.savefig('lossplot.pdf')
+        plt.close()
         return
 
     def plot_rmse(self):
@@ -317,6 +320,7 @@ class NetworkHandler():
             plt.ylabel("RMSE")
             plt.legend(["train RMSE","test RMSE"])
         plt.savefig('rmseplot.pdf')
+        plt.close()
         return
 
 

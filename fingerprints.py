@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 import numpy as np
-from .den_fmt_io import castep_data
+from den_fmt_io import castep_data
 #from sympy.physics.quantum.cg import CG as CG_py
 from fortran.f90_descriptor import f90wrap_get_cg_tensor as get_CG_tensor
 from fortran.f90_descriptor import f90wrap_getbispectrum as get_bispect
