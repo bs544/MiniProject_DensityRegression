@@ -71,7 +71,7 @@ class Castep_density():
         taper = x_prime4/(1+x_prime4)
         return taper
 
-    def get_cell_data(self,filename,cell_dir="./Cell_data/",fp_dir="./FP_data/"):
+    def get_cell_data(self,filename,cell_dir="./Cell_data/",fp_dir="./FP_data/",include_density=False):
         cell_keys=["cell","at_posns","grid","fin_density"]
         fp_keys=["fingerprints","density"]
         if (os.path.isdir(cell_dir) and os.path.isfile("{}{}".format(cell_dir,filename))):
@@ -92,6 +92,9 @@ class Castep_density():
                     print("fp data incomplete")
 
                 self.set_supercell(cell_dict["cell"],cell_dict["at_posns"],cell_dict["grid"],fp_dict["fingerprints"])
+                if(include_density):
+                    self.supercell.train_density=fp_dict["density"]
+                    self.supercell.fin_density=cell_dict["fin_density"]
 
             elif(self.calc_FP):
                 print("not implemented yet")
@@ -111,6 +114,7 @@ class Castep_density():
         self.supercell = supercell()
         self.supercell.set_cell(cell)
         frac_coords = self.get_frac_coords(at_posns,cell)
+        self.supercell.cart_coords=at_posns
         self.supercell.set_positions(frac_coords)
         at_species = ['H' for i in range(at_posns.shape[0])]
         self.supercell.set_species(at_species)

@@ -77,7 +77,10 @@ class NetworkHandler():
 
         #center data on zero and standardise
         self.descriptor.standardise_FP()
-        self.y_mean,self.y_std = self.descriptor.analyse_densities()
+        self.datamean = self.descriptor.mean
+        self.datastd = self.descriptor.standev
+        if (self.y_mean is None or self.y_std is None):
+            self.y_mean,self.y_std = self.descriptor.analyse_densities()
 
         #randomly shuffle densities and fingerprints in the same way
         indices = np.random.choice(range(len(self.descriptor.density)),len(self.descriptor.density),replace=False)
@@ -272,8 +275,8 @@ class NetworkHandler():
             nNetworks = self.nNetworks
 
         if (not standard):
-            X -= self.descriptor.mean
-            X = X/(self.descriptor.standev[None,:]+1e-8)
+            X -= self.datamean
+            X = X/(self.datastd[None,:]+1e-8)
 
         net_idx = range(nNetworks)
 
@@ -283,6 +286,10 @@ class NetworkHandler():
 
         for idx,network in enumerate(self.session["ensemble"]):
             if (idx in net_idx):
+                if(True):
+                    self.session["tf_session"].run(tf.assign(network.output_mean,self.y_mean))
+                    self.session["tf_session"].run(tf.assign(network.output_std,self.y_std))
+
                 input = {network.in_vect:X}
                 mean_,std_ = self.session["tf_session"].run([network.mean,network.std],input)
                 mean[:,idx] = mean_[:,0]
@@ -336,7 +343,7 @@ class NetworkHandler():
 
 class Network():
     def __init__(self,hidden_nodes=[100,100],out_nodes=[2],fplength=200,train_params=None,index=0,activation="relu",name="densityNetwork"):
-        self.nodes = [fplength*2]+list(hidden_nodes)+out_nodes #input,hidden,output. The output is mean and uncertainty
+        self.nodes = [int(fplength*2)]+list(hidden_nodes)+out_nodes #input,hidden,output. The output is mean and uncertainty
         print("network {} created".format(index))
         self.netNumber = index
         if (out_nodes[0] == 2):
@@ -377,7 +384,7 @@ class Network():
 
         def lossFn(target,mean,std,mixweight,numNetworks):
             #loss function for heteroskedastic regression.
-            #function is of the form \sum_{n}ln(\sum_{k} \pi_{nk} * \frac{e^{-(mu_{nk}-t_{n})^2/2*\sigma_{nk}}}{\sqrt{\sigma_{nk}}})batch_idx
+            #function is of the form \sum_{n}ln(\frac{e^{-(mu_{n}-t_{n})^2/2*\sigma_{n}}}{\sqrt{\sigma_{n}}})batch_idx
 
             #get term in exponential
             mu_ = mean - tf.reshape(tf.tile(target,[1,numNetworks]),tf.shape(mean))
