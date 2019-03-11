@@ -121,9 +121,13 @@ class Castep_density():
             print("incompatible grid and fingerprints")
         return
 
-    def ensemble_predict(self):
+    def ensemble_predict(self,X=None):
 
-        ensemble_mean,ensemble_std = self.NetHandler.predict(self.supercell.FP,standard=False)
+        if (X is None):
+            ensemble_mean,ensemble_std = self.NetHandler.predict(self.supercell.FP,standard=False)
+
+        else:
+            ensemble_mean,ensemble_std = self.NetHandler.predict(X,standard=False)
 
         return ensemble_mean,ensemble_std
 
@@ -180,7 +184,7 @@ class Castep_density():
 
         return idx
 
-    def setCellDensities(self,filename="Hnet_density.check"):
+    def setCellDensities(self,filename=None):
         #requires supercell to be set
         if (self.supercell is None):
             print("set the cell values before continuing")
@@ -210,6 +214,9 @@ class Castep_density():
         # print(ensemble_mean[1089]*taper)
         # print(density[nonzero_idx[1089]])
 
-        wrapper = wrap_inhouse(self.supercell)
-        wrapper.write_cell(mp_grid_spacing=[2,2,2],fname="Hnet_test.cell")
-        wrapper.write_unformatted_density(fname=filename)
+        if (filename is not None):
+
+            wrapper = wrap_inhouse(self.supercell)
+            wrapper.write_cell(mp_grid_spacing=[2,2,2],fname="Hnet_test.cell")
+            wrapper.write_unformatted_density(fname=filename)
+        return

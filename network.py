@@ -243,6 +243,12 @@ class NetworkHandler():
             print("Ensemble Directory Not present")
             return
 
+        f = open('./{}/{}.pckl'.format(self.name,'network_dict'),'rb')
+        load_dict = pickle.load(f)
+        for property in load_dict:
+            setattr(self,property,load_dict[property])
+
+
         self.session = {"tf_session":None,"ensemble":None,"saver":None}
 
         self.setup_ensemble()
@@ -260,7 +266,7 @@ class NetworkHandler():
         self.loaded = True
         return
 
-    def predict(self,X,nNetworks=None,standard=True):
+    def predict(self,X,ensemble=True,nNetworks=None,standard=True):
         #standard is set to false if the incoming data wasn't centered on zero and its standard deviation set to 1 with the initial training data
         if (nNetworks is None):
             nNetworks = self.nNetworks
@@ -282,9 +288,12 @@ class NetworkHandler():
                 mean[:,idx] = mean_[:,0]
                 std[:,idx] = std_[:,0]
 
-        ensemble_mean = mean.mean(axis=1)
-        ensemble_std = np.sqrt((np.sum(np.square(mean)-np.square(ensemble_mean[:,None]),axis=1)+np.sum(np.square(std),axis=1))/self.nNetworks)
-
+        if (ensemble):
+            ensemble_mean = mean.mean(axis=1)
+            ensemble_std = np.sqrt((np.sum(np.square(mean)-np.square(ensemble_mean[:,None]),axis=1)+np.sum(np.square(std),axis=1))/self.nNetworks)
+        else:
+            ensemble_mean = mean
+            ensemble_std = std
 
         return ensemble_mean,ensemble_std
 
