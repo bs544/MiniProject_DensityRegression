@@ -15,7 +15,7 @@ class castep_data():
         self.path = dataPath
         self.data = []
         self.relevantFileTypes = ['castep','den_fmt']
-        self.threshold = 10000 # non zero threshold: if a density multiplied by this is less than the maximum density, it's pretty much zero and you don't need to include it
+        self.threshold = 1000 # non zero threshold: if a density multiplied by this is less than the maximum density, it's pretty much zero and you don't need to include it
         self.filename = filename
         self.datadir = savedir
         self.datalist = datalist
