@@ -5,7 +5,7 @@ from den_fmt_io import castep_data
 from fortran.f90_descriptor import f90wrap_get_cg_tensor as get_CG_tensor
 from fortran.f90_descriptor import f90wrap_getbispectrum as get_bispect
 from fortran.f90_descriptor import f90wrap_bispect_length as bispect_length
-from fortran.f90_descriptor import f90wrap_invoverlap as invOverlap
+from fortran.f90_descriptor import f90wrap_getpowerspectrum as get_powerspect
 from fortran.f90_descriptor import f90wrap_invsqrtoverlap as invSqrtOverlap
 import time
 import os
@@ -35,7 +35,8 @@ class fingerprints():
         self.Rc = r_c
         self.includeGlobal = globalFP
         self.descriptor = descriptor#not that I have any other kind to use
-        self.fplength = bispect_length(self.nmax,self.lmax)
+        self.bilength = bispect_length(self.nmax,self.lmax)
+        self.powerlength = nmax*(lmax+1)
         # self.filename = '{}.pckl'.format(self.descriptor)
         self.train_dir = train_dir
         self.cell_dir = cell_dir
@@ -63,7 +64,7 @@ class fingerprints():
 
             at_dist = self.get_at_dist(posns)
             name = "Hcell{}".format(str(at_dist))
-            cell_class = Cell_data(self.fplength,grid,cell,posns,elements,name)
+            cell_class = Cell_data(self.bilength,self.powerlength,grid,cell,posns,elements,name)
             cell_class.set_density(density)
             cell_class.set_final_density(fin_density)
             self.Cells.append(cell_class)
@@ -75,7 +76,6 @@ class fingerprints():
 
     def getInitialVariables(self):
         self.W = invSqrtOverlap(self.nmax,self.nmax,self.nmax)
-        self.inv_S = invOverlap(self.nmax,self.nmax,self.nmax)
         if (self.descriptor=='bispectrum'):
             nl = self.lmax +1
             nm = 2*self.lmax +1
@@ -95,7 +95,7 @@ class fingerprints():
         return dist
 
     def bispectrum(self):
-        if (self.rawInput is None or self.Cells is None):
+        if (self.rawInput is None and self.Cells is None):
             print('No data loaded')
             return
 
@@ -105,7 +105,7 @@ class fingerprints():
         num_files = len(self.Cells)
         print("max_r: ",self.max_r)
 
-        self.fingerprint = np.zeros((sum(self.readlength[:num_files]),self.fplength*2))
+        self.fingerprint = np.zeros((sum(self.readlength[:num_files]),self.bilength+self.powerlength))
 
         # for i in range(num_files):
         #     cell = (self.rawInput[i]['cell'])
@@ -121,15 +121,19 @@ class fingerprints():
             grid = cell_class.grid
             density = cell_class.density
             natoms = len(elements)
+            if (natoms not in at_posns.shape):
+                print("invalid atom positions")
+            elif (natoms == at_posns.shape[0]):
+                at_posns = at_posns.T
 
-            glob_bispectrum = get_bispect(self.nmax,self.lmax,self.Rc,get_f90_array(at_posns),get_f90_array(cell),natoms,get_f90_array(grid[0,:]),self.W,self.inv_S,self.cg_tensor,self.fplength,False,self.fplength)
-
+            glob_powerspectrum = get_powerspect(self.nmax,self.lmax,self.Rc,get_f90_array(at_posns),get_f90_array(cell),natoms,get_f90_array(grid[0,:]),self.W,self.powerlength,False,self.powerlength)
+            glob_powerspectrum = np.asarray(glob_powerspectrum.T,order="C")
             for j in range(self.readlength[i]):
                 #print('Iteration: {}'.format(j))
-                bispectrum = get_bispect(self.nmax,self.lmax,self.Rc,get_f90_array(at_posns),get_f90_array(cell),natoms,get_f90_array(grid[j,:]),self.W,self.inv_S,self.cg_tensor,self.fplength,True,self.fplength)
+                bispectrum = get_bispect(self.nmax,self.lmax,self.Rc,get_f90_array(at_posns),get_f90_array(cell),natoms,get_f90_array(grid[j,:]),self.W,self.cg_tensor,self.bilength,True,self.bilength)
                 bispectrum = np.asarray(bispectrum.T,order='C')
-                self.fingerprint[sum(self.readlength[:i])+j,:self.fplength] = bispectrum
-                self.fingerprint[sum(self.readlength[:i])+j,self.fplength:] = glob_bispectrum
+                self.fingerprint[sum(self.readlength[:i])+j,:self.bilength] = bispectrum
+                self.fingerprint[sum(self.readlength[:i])+j,self.bilength:] = glob_powerspectrum
             cell_class.set_fingerprints(self.fingerprint[sum(self.readlength[:i]):sum(self.readlength[:i+1]),:])
             cell_class.Save_train_data(self.train_dir)
             print('Calculation of file {} complete, time taken:{}'.format(i,time.time()-start))
@@ -158,7 +162,7 @@ class fingerprints():
         #check files in self.train_dir
         if(os.path.isdir(self.train_dir)):
             files = os.listdir(self.train_dir)
-            self.fingerprint = np.zeros((1,self.fplength*2))
+            self.fingerprint = np.zeros((1,self.bilength+self.powerlength))
             counter = 0
             self.readlength = []
             for i, file in enumerate(files):
@@ -167,7 +171,7 @@ class fingerprints():
                 f.close()
                 tmp_fp = savedict['fingerprints']
                 self.readlength.append(tmp_fp.shape[0])
-                if (tmp_fp.shape[1]==self.fplength*2 and len(tmp_fp.shape)==2):
+                if (tmp_fp.shape[1]==(self.bilength+self.powerlength) and len(tmp_fp.shape)==2):
                     self.fingerprint=np.vstack((self.fingerprint,tmp_fp))
                     counter +=1
                 else:
@@ -236,8 +240,9 @@ class fingerprints():
             self.fingerprint -= self.mean
             self.standev = np.std(self.fingerprint,axis=0)
             self.standev.reshape((len(self.standev),1))
-            if (len(self.rawInput)==1):
-                self.fingerprint[:,:self.fplength] = self.fingerprint[:,:self.fplength]/(self.standev[None,:self.fplength]+1e-8)
+            if (all(self.standev[self.bilength:]<1e-15)):
+                print("there should only be one cell training")
+                self.fingerprint[:,:self.bilength] = self.fingerprint[:,:self.bilength]/(self.standev[None,:self.bilength]+1e-8)
             else:
                 self.fingerprint = self.fingerprint/(self.standev[None,:]+1e-8)
 
@@ -277,7 +282,7 @@ class fingerprints():
             flat_idx = list(np.where(grid[:,2]==1.5)[0])
             plotgrid = grid[flat_idx,:2]
 
-            plotZ = self.fingerprint[flat_idx,:self.fplength]
+            plotZ = self.fingerprint[flat_idx,:self.bilength]
             plotZ = normalize(plotZ,axis=0,norm='l2',copy=False)
             Z = np.linalg.norm(plotZ,axis=1)
             print(Z.shape,plotgrid.shape)
@@ -294,13 +299,14 @@ class fingerprints():
         return
 
 class Cell_data():
-    def __init__(self,fplength,grid,cell_vects,at_posns,at_species,name):
+    def __init__(self,bilength,powerlength,grid,cell_vects,at_posns,at_species,name):
         self.cell = cell_vects
         self.at_posns = at_posns#want to be natoms by 3 array
         self.name = name
         self.grid = grid
         self.at_species = at_species
-        self.fplength = fplength
+        self.bilength = bilength
+        self.powerlength = powerlength
         self.fingerprints = None
         self.fin_density = None
         self.density = None#difference between initial and final densities
@@ -324,8 +330,8 @@ class Cell_data():
         return
 
     def set_fingerprints(self,fingerprints):
-        if(isinstance(fingerprints,np.ndarray) and self.fplength*2 in fingerprints.shape):
-            if(fingerprints.shape[0]==self.fplength):
+        if(isinstance(fingerprints,np.ndarray) and (self.bilength+self.powerlength) in fingerprints.shape):
+            if(fingerprints.shape[0]==(self.bilength+self.powerlength)):
                 self.fingerprints = fingerprints.T
             else:
                 self.fingerprints = fingerprints

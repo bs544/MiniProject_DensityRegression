@@ -32,11 +32,13 @@ class Castep_density():
 
         if (isinstance(descriptor,fingerprints)):
             self.descriptor = descriptor
-            self.fplength = self.descriptor.fplength
+
         else:
             print("descriptor passed was invalid, creating default fingerprints class")
             self.descriptor = fingerprints()
-            self.fplength = 20
+        self.bilength = self.descriptor.bilength
+        self.powerlength = self.descriptor.powerlength
+
         return
 
     def setupNetwork(self):

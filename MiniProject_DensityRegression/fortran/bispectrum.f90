@@ -12,11 +12,9 @@ module bispectrum
 	
 	contains
 	
-	
-	
-	function getBispectrum(n_max,l_max,r_c, atomPositions,cell,nAtoms,pointPosition,W,inv_S,CG_tensor_in,array_length,local)
-	!gets the local or global bispectrum, depending on the logical value local
-	!returns a vector array, but you'll need to remove the zero values elsewhere
+	function getPowerSpectrum(n_max,l_max,r_c,atomPositions,cell,nAtoms,pointPosition,W,array_length,local)
+	!gets the local or global power spectrum, depending on the logical value local
+	!returns a vector array
 		implicit none
 		integer, intent(in) :: n_max
 		integer, intent(in) :: l_max
@@ -26,7 +24,60 @@ module bispectrum
 		integer, intent(in) :: nAtoms
 		real(8), intent(in) :: pointPosition(3)
 		real(8), intent(in) :: W(n_max,n_max)
-		real(8), intent(in) :: inv_S(n_max,n_max)
+		integer, intent(in) :: array_length
+		logical, intent(in) :: local
+		
+		type(systemStateType) :: systemState
+		type(pointType) :: point
+		type(bispectParamType) :: bispectParams
+		
+
+		real(8), dimension(1:n_max,0:l_max) :: power_matrix
+		real(8), dimension(array_length) :: getPowerSpectrum
+		integer :: n,l,m, ii
+
+		
+		call assignBispectParams(bispectParams,r_c,l_max,n_max)
+		call assignSystemState(systemState,cell,atomPositions)
+		call assignPoint(point,pointPosition)
+		
+		
+		if (local) then
+			call getLocalPowerSpectrum(systemState,point,bispectParams,power_matrix,W)
+		else
+			call getGlobalPowerSpectrum(systemState,bispectParams,power_matrix,W)
+		end if
+		
+
+		getPowerSpectrum = 0.0d0
+		getPowerSpectrum = pack(power_matrix,.True.)
+		
+		do ii = 1, array_length
+			if (getPowerSpectrum(ii).lt.dble(1e-18)) then
+				getPowerSpectrum(ii) = 0.0d0
+			end if
+		end do
+
+
+		
+		call tidySystem(systemState)
+		call tidyPoint(point)
+		
+	
+	end function 
+	
+	function getBispectrum(n_max,l_max,r_c, atomPositions,cell,nAtoms,pointPosition,W,CG_tensor_in,array_length,local)
+	!gets the local or global bispectrum, depending on the logical value local
+	!returns a vector array, with mask selecting the non zero bispectrum tensor elements (see get_output_mask for conditions)
+		implicit none
+		integer, intent(in) :: n_max
+		integer, intent(in) :: l_max
+		real(8), intent(in) :: r_c
+		real(8), intent(in) :: atomPositions(:,:)
+		real(8), intent(in) :: cell(3,3)
+		integer, intent(in) :: nAtoms
+		real(8), intent(in) :: pointPosition(3)
+		real(8), intent(in) :: W(n_max,n_max)
 		real(8), intent(in) :: CG_tensor_in(0:l_max,0:l_max,0:l_max,0:2*l_max,0:2*l_max,0:2*l_max)
 		integer, intent(in) :: array_length
 		logical, intent(in) :: local
@@ -39,7 +90,7 @@ module bispectrum
 		real(8), dimension(1:n_max,0:l_max,0:l_max,0:l_max) :: bispect_tensor
 		real(8), dimension(array_length) :: getBispectrum
 		logical, dimension(1:n_max,0:l_max,0:l_max,0:l_max) :: mask
-		integer :: n,l,l_1,l_2
+		integer :: n,l,l_1,l_2, ii
 		!real(8) :: check
 		
 		mask = get_output_mask(n_max,l_max)	
@@ -54,23 +105,21 @@ module bispectrum
 		
 		
 		if (local) then
-			call getLocalBispectrum(systemState,point,bispectParams,bispect_tensor,W,inv_S,CG_tensor)
+			call getLocalBispectrum(systemState,point,bispectParams,bispect_tensor,W,CG_tensor)
 		else
-			call getGlobalBispectrum(systemState,bispectParams,bispect_tensor,W,inv_S,CG_tensor)
+			call getGlobalBispectrum(systemState,bispectParams,bispect_tensor,W,CG_tensor)
 		end if
 		
-		!I might add a non zero mask later but I need to add a program to check the number of non zero bispectrum values
-		!write(*,*) bispect_tensor
+		!flatten tensor, keeping only the non zero tensor elements
 		getBispectrum = 0
 		getBispectrum = pack(bispect_tensor,mask)
 		
-!~ 		do n=1,n_max
-!~ 			do l=0,l_max
-!~ 				do l_1=0,l_max
-!~ 						print *, bispect_tensor(n,l,l_1,:)
-!~ 				end do
-!~ 			end do
-!~ 		end do
+		do ii = 1, array_length
+			if (getBispectrum(ii).lt.dble(1e-18)) then
+				getBispectrum(ii) = 0.0d0
+			end if
+		end do
+		
 		
 		call tidySystem(systemState)
 		call tidyPoint(point)
@@ -80,13 +129,12 @@ module bispectrum
 	
 	
 	
-	subroutine getLocalBispectrum(systemState,point,biPrms,bispect_local,W,inv_S,CG_tensor)
+	subroutine getLocalBispectrum(systemState,point,biPrms,bispect_local,W,CG_tensor)
 		implicit none
 		type(systemStateType), intent(in) :: systemState
 		type(pointType), intent(inout) :: point
 		type(bispectParamType), intent(in) :: biPrms
 		real(8), intent(in) :: W(biPrms%n_max,biPrms%n_max)
-		real(8), intent(in) :: inv_S(biPrms%n_max,biPrms%n_max)
 		real(8), intent(inout) :: bispect_local(1:biPrms%n_max,0:biPrms%l_max,0:biPrms%l_max,0:biPrms%l_max)
 		real(8), intent(in) :: CG_tensor(0:biPrms%l_max,0:biPrms%l_max,0:biPrms%l_max,&
 		-biPrms%l_max:biPrms%l_max,-biPrms%l_max:biPrms%l_max,-biPrms%l_max:biPrms%l_max)	
@@ -110,9 +158,9 @@ module bispectrum
 		
 		allocate(coeffs(1:n_max,0:l_max,-l_max:l_max))
 		coeffs = complex(0.0d0,0.0d0)
-				
-		call localProjector(systemState,point,coeffs,W,inv_S,r_c,n_max,l_max)
 		
+		call localProjector(systemState,point,coeffs,W,r_c,n_max,l_max)
+
 		if (all(coeffs.eq.complex(0.0d0,0.0d0))) then
 			bispect_local = 0
 			!print *, "zero coefficients"
@@ -148,12 +196,11 @@ module bispectrum
 	
 	
 	
-	subroutine getGlobalBispectrum(systemState,biPrms,bispect_global,W,inv_S,CG_tensor)
+	subroutine getGlobalBispectrum(systemState,biPrms,bispect_global,W,CG_tensor)
 		implicit none
 		type(systemStateType), intent(in) :: systemState
 		type(bispectParamType), intent(in) :: biPrms
 		real(8), intent(in) :: W(biPrms%n_max,biPrms%n_max)
-		real(8), intent(in) :: inv_S(biPrms%n_max,biPrms%n_max)
 		real(8), intent(inout) :: bispect_global(1:biPrms%n_max,0:biPrms%l_max,0:biPrms%l_max,0:biPrms%l_max)
 		real(8), intent(in) :: CG_tensor(0:biPrms%l_max,0:biPrms%l_max,0:biPrms%l_max,&
 		-biPrms%l_max:biPrms%l_max,-biPrms%l_max:biPrms%l_max,-biPrms%l_max:biPrms%l_max)	
@@ -169,7 +216,7 @@ module bispectrum
 		
 		allocate(coeffs(1:n_max,0:l_max,-l_max:l_max))
 		
-		call globalProjector(systemState,coeffs,W,inv_S,biPrms)
+		call globalProjector(systemState,coeffs,W,biPrms)
 		
 		if (all(coeffs.eq.0)) then
 			bispect_global = 0.0d0
@@ -199,9 +246,104 @@ module bispectrum
 	
 	end subroutine getGlobalBispectrum
 	
+	subroutine getLocalPowerSpectrum(systemState,point,biPrms,power_local,W)
+		implicit none
+		type(systemStateType), intent(in) :: systemState
+		type(pointType), intent(inout) :: point
+		type(bispectParamType), intent(in) :: biPrms
+		real(8), intent(in) :: W(biPrms%n_max,biPrms%n_max)
+		real(8), intent(inout) :: power_local(1:biPrms%n_max,0:biPrms%l_max)
+		
+		complex(8), allocatable :: coeffs(:,:,:)
+		integer :: n, l, m
+		integer :: n_max, l_max
+		real(8) :: r_c
+	
+		real(8) :: tmp
+		
+!		logical :: allGood !if this isn't true, then the atomic positions are out of the cell bounds
+		
+!		do ii = 1, arrayShape(2)
+!			allGood = checkInCell(systemState%atomPositions(:,ii),cell)
+!		end do
+		
+		n_max = biPrms%n_max
+		l_max = biPrms%l_max
+		r_c = biPrms%r_c
+		
+		allocate(coeffs(1:n_max,0:l_max,-l_max:l_max))
+		coeffs = complex(0.0d0,0.0d0)
+				
+		call localProjector(systemState,point,coeffs,W,r_c,n_max,l_max)
+		
+		if (all(coeffs.eq.complex(0.0d0,0.0d0))) then
+			power_local = 0.0d0
+			!print *, "zero coefficients"
+		else
+		
+		power_local = 0.0d0
+
+		do n=1,n_max
+			do l=0,l_max
+				tmp = 0.0d0
+				do m=-l,l_max
+					tmp = tmp + RealPart(conjg(coeffs(n,l,m))*coeffs(n,l,m))
+				end do
+				power_local(n,l) = tmp
+			end do
+		end do	
+		end if
+		
+
+				
+		deallocate(coeffs)
 	
 	
-	subroutine localProjector(systemState,point,coeffs,W,inv_S,r_c,n_max,l_max)
+	end subroutine getLocalPowerSpectrum
+	
+	subroutine getGlobalPowerSpectrum(systemState,biPrms,power_global,W)
+		implicit none
+		type(systemStateType), intent(in) :: systemState
+		type(bispectParamType), intent(in) :: biPrms
+		real(8), intent(in) :: W(biPrms%n_max,biPrms%n_max)
+		real(8), intent(inout) :: power_global(1:biPrms%n_max,0:biPrms%l_max)
+		
+		complex(8), allocatable :: coeffs(:,:,:)
+		integer :: n, l, m
+		integer :: n_max, l_max
+	
+		real(8) :: tmp
+		
+		n_max = biPrms%n_max
+		l_max = biPrms%l_max
+		
+		allocate(coeffs(1:n_max,0:l_max,-l_max:l_max))
+		
+		call globalProjector(systemState,coeffs,W,biPrms)
+		
+		if (all(coeffs.eq.0)) then
+			power_global = 0.0d0
+		else
+		power_global = 0.0d0
+		do n=1,n_max
+			do l=0,l_max
+				tmp = 0.0d0
+				do m=-l,l
+					tmp = tmp + RealPart(conjg(coeffs(n,l,m))*coeffs(n,l,m))
+				end do
+				power_global(n,l) = tmp
+			end do
+		end do	
+		
+		end if
+		
+		deallocate(coeffs)
+	
+	end subroutine getGlobalPowerSpectrum
+	
+	
+	
+	subroutine localProjector(systemState,point,coeffs,W,r_c,n_max,l_max)
 	!around a general point in space, project atomic positions onto the basis functions
 	
 		implicit none
@@ -211,7 +353,6 @@ module bispectrum
 		integer, intent(in) :: l_max
 		real(8), intent(in) :: r_c
 		real(8), intent(in) :: W(n_max,n_max)
-		real(8), intent(in) :: inv_S(n_max,n_max)
 		complex(8), intent(inout) :: coeffs(1:n_max,0:l_max,-l_max:l_max)
 
 		
@@ -221,12 +362,12 @@ module bispectrum
 		integer :: ii, n, n_1, n_2, l, m, buffer_size = 100
 !~ 		real(8), dimension(n_max,n_max) :: W
 !~ 		real(8), dimension(n_max,n_max) :: inv_S
-		
 
 		coeffs = complex(0.0d0,0.0d0)
 		temp = complex(0.0d0,0.0d0)
 
 		call getNeighbours(systemState, point,r_c,buffer_size)
+		
 		if (point%numNeighbours.gt.0) then
 			allocate(polarPositions(3,point%numNeighbours))
 
@@ -247,17 +388,17 @@ module bispectrum
 						do ii = 1,point%numNeighbours
 							temp = temp + sphericalHarm(polarPositions(3,ii),polarPositions(2,ii),m,l)*radialBasis(polarPositions(1,ii),r_c,n,n_max,W)
 						end do
-						coeffs_(n, l, m) = temp
+						coeffs(n, l, m) = temp
 						temp = complex(0.0d0,0.0d0)
 					end do
 					!convert c' to c
-					do n_1=1,n_max
-						do n_2=1,n_max
-							temp = temp + inv_S(n_2,n_1)*coeffs_(n_2,l,m)
-						end do
-						coeffs(n_1,l,m) = temp
-						temp = complex(0.0d0,0.0d0)
-					end do
+!~ 					do n_1=1,n_max
+!~ 						do n_2=1,n_max
+!~ 							temp = temp + inv_S(n_2,n_1)*coeffs_(n_2,l,m)
+!~ 						end do
+!~ 						coeffs(n_1,l,m) = temp
+!~ 						temp = complex(0.0d0,0.0d0)
+!~ 					end do
 				end do
 			end do
 
@@ -275,14 +416,13 @@ module bispectrum
 	
 	
 	
-	subroutine globalProjector(systemState,coeffs,W,inv_S,biPrms)
+	subroutine globalProjector(systemState,coeffs,W,biPrms)
 	!sets the point position to an atom position and removes the atom position from the systemState, then calculates the local bispectrum like that
 		implicit none
 		
 		type(systemStateType), intent(in) :: systemState
 		type(bispectParamType), intent(in) :: biPrms
 		real(8), intent(in) :: W(biPrms%n_max,biPrms%n_max)
-		real(8), intent(in) :: inv_S(biPrms%n_max,biPrms%n_max)
 		complex(8), intent(inout) :: coeffs(1:biPrms%n_max,0:biPrms%l_max,-biPrms%l_max:biPrms%l_max)
 		
 		type(systemStateType) :: tmpState
@@ -316,7 +456,7 @@ module bispectrum
 			call assignPoint(point,systemState%atomPositions(:,ii))
 			
 			tmpCoeffs = complex(0.0d0,0.0d0)			
-			call localProjector(tmpState,point,tmpCoeffs,W,inv_S,r_c,n_max,l_max)
+			call localProjector(tmpState,point,tmpCoeffs,W,r_c,n_max,l_max)
 			
 			coeffs = coeffs + tmpCoeffs
 		end do
@@ -483,10 +623,11 @@ module bispectrum
 		overlap = overlapMatrix(n_max)
 		
 		
-		invOverlap = overlap
+		invOverlap = invSqrtOverlap(n_max)
+		invOverlap = matmul(invOverlap,invOverlap)
 		
-		call dgetrf(n_max,n_max,invOverlap,n_max,ipiv,info1)
-		call dgetri(n_max, invOverlap, n_max, ipiv, work, n_max, info2)
+!~ 		call dgetrf(n_max,n_max,invOverlap,n_max,ipiv,info1)
+!~ 		call dgetri(n_max, invOverlap, n_max, ipiv, work, n_max, info2)
 !~ 		call dsytrf('U',n_max,invOverlap,n_max,ipiv,overlap,n_max,info1)
 !~ 		call dsytri('U',n_max,invOverlap,n_max,ipiv,overlap,info2)
 			

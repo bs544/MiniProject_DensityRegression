@@ -80,8 +80,6 @@ module neighbours
 		maxLattVect = ceiling(r_c/sidelengths)
 
 		
-
-		
 		do idx = 1, systemState%nAtoms
 			do ii = -maxLattVect(1),maxLattVect(1)
 				do jj = -maxLattVect(2),maxLattVect(2)

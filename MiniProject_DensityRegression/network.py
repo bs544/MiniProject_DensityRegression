@@ -19,11 +19,14 @@ class NetworkHandler():
         self.set_activation(activation)
         self.nNetworks = nNetworks
         self.nMeans_per_network = means_per_network
-        self.batch_size = 500
+        self.batch_size = batch_size
         self.nEpochs = nEpochs
         self.name=name
         self.trained = False
         self.loaded = False
+        self.y_mean = None
+        self.y_std = None
+        self.denThreshold=1000#anything lower than the max density correction divided by this won't be trained
         if (train_dir is not None):
             self.train_dir=train_dir
         else:
@@ -56,24 +59,29 @@ class NetworkHandler():
 
         if (isinstance(descriptor,fingerprints) or "lmax" in descriptor.__dict__.keys()): #figure out how to get the isinstance thing working when the descriptor is imported through a module
             self.descriptor = descriptor
-            self.fplength = self.descriptor.fplength
+
         else:
             print("descriptor passed was invalid, creating default fingerprints class")
             self.descriptor = fingerprints()
-            self.fplength = 20
 
-
-
+        self.bilength = self.descriptor.bilength
+        self.powerlength = self.descriptor.powerlength
         return
 
     def get_data(self,clear=True):
         #get the fingerprints and densities, randomly shuffle them and assign them to training or testing according to the train fraction
 
         #get the densities from the castep output
-        self.descriptor.Load_data(self.train_dir)
+        #no longer need to do that, the densities are stored in the FP pickle files
+        #self.descriptor.Load_data(self.train_dir)
 
         #get fingerprints
         self.descriptor.get_FP(save=True)
+        print("dataset size: {}".format(len(self.descriptor.density)))
+
+        idx = np.where(self.denThreshold*self.descriptor.density>np.max(self.descriptor.density))[0]
+        self.descriptor.density = self.descriptor.density[idx]
+        self.descriptor.fingerprint = self.descriptor.fingerprint[idx,:]
 
         #center data on zero and standardise
         self.descriptor.standardise_FP()
@@ -90,10 +98,10 @@ class NetworkHandler():
 
         train_data = np.sum(train_choice)
         test_data = len(train_choice) - train_data
-        self.X_train = np.zeros((train_data,self.descriptor.fplength*2))
+        self.X_train = np.zeros((train_data,(self.powerlength+self.bilength)))
         self.y_train = np.zeros(train_data)
 
-        self.X_test = np.zeros((test_data,self.descriptor.fplength*2))
+        self.X_test = np.zeros((test_data,(self.powerlength+self.bilength)))
         self.y_test = np.zeros(test_data)
 
         train_counter = 0
@@ -158,7 +166,7 @@ class NetworkHandler():
             self.nMeans_per_network = 1
             out_nodes=[2]
 
-        self.session["ensemble"] = [Network(self.nodes,out_nodes,self.fplength,self.train_params,index=i,activation=self.activation) for i in range(self.nNetworks)]
+        self.session["ensemble"] = [Network(self.nodes,out_nodes,(self.powerlength+self.bilength),self.train_params,index=i,activation=self.activation) for i in range(self.nNetworks)]
 
         return
 
@@ -195,14 +203,13 @@ class NetworkHandler():
             for epoch in range(self.nEpochs):
                 print('epoch {}'.format(epoch+1))
                 net_X_minibatches, net_y_minibatches, nbatches = self.get_batches(net_X_batch,net_y_batch)
-
                 for minibatch_idx in range(nbatches):
 
                     input = {network.in_vect:net_X_minibatches[minibatch_idx],network.target:net_y_minibatches[minibatch_idx].reshape(-1,1)}
 
                     trainrun,loss = self.session["tf_session"].run([network.train_op,network.loss_val],input)
 
-                    if (np.mod(counter,10) == 0):
+                    if (np.mod(counter,5) == 0):
                         self.loss[net_index].append(loss)
 
                     counter += 1
@@ -342,8 +349,8 @@ class NetworkHandler():
 
 
 class Network():
-    def __init__(self,hidden_nodes=[100,100],out_nodes=[2],fplength=200,train_params=None,index=0,activation="relu",name="densityNetwork"):
-        self.nodes = [int(fplength*2)]+list(hidden_nodes)+out_nodes #input,hidden,output. The output is mean and uncertainty
+    def __init__(self,hidden_nodes=[100,100],out_nodes=[2],fplength=160,train_params=None,index=0,activation="relu",name="densityNetwork"):
+        self.nodes = [fplength]+list(hidden_nodes)+out_nodes #input,hidden,output. The output is mean and uncertainty
         print("network {} created".format(index))
         self.netNumber = index
         if (out_nodes[0] == 2):
