@@ -1,6 +1,6 @@
-from network import NetworkHandler
-from fingerprints import fingerprints
-from castep_density import Castep_density
+from MiniProject_DensityRegression.network import NetworkHandler
+from MiniProject_DensityRegression.fingerprints import fingerprints
+from MiniProject_DensityRegression.castep_density import Castep_density
 import matplotlib.pyplot as plt
 import numpy as np
 import pickle
@@ -41,7 +41,7 @@ def shiftxy(x,y,shift=[5.0,5.0]):
     y = np.where(y>ymax,y_wrap,y)
     return x,y
 
-def results_along_a_line(netName,cellName,pltline,ensembleplot=True,wDensity=True):
+def results_along_a_line(netName,cellName,pltline=None,ensembleplot=True,wDensity=True):
     #using precalculated fingerprints and cell data for everything
 
     #define descriptor (optional)
@@ -161,10 +161,13 @@ def FPmap(netName,cellName,plane=None):
 
     if (plane is None):
         plane=grid[1,2]
+    else:
+        idx = np.argmin(plane-grid[:,2])
+        plane = grid[idx,2]
 
     plane_idx = np.where(plane==grid[:,2])[0]
 
-    plane_FPs = C.supercell.FP[plane_idx,:]
+    plane_FPs = C.supercell.FP[plane_idx,:fp.bilength]
 
     x = C.supercell.grid[plane_idx,0]
     y = C.supercell.grid[plane_idx,1]
@@ -175,7 +178,7 @@ def FPmap(netName,cellName,plane=None):
 
     cm = plt.cm.get_cmap('RdYlBu')
 
-    sc = plt.scatter(x,y,c=z,cmap=cm,marker='.',s=5.0,alpha=1)
+    sc = plt.scatter(x,y,c=z,cmap=cm,marker='.',s=50.0,alpha=1)
     plt.colorbar(sc)
     plt.show()
 

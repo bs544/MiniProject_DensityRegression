@@ -1,6 +1,6 @@
 from parsers.structure_class import supercell
-from fingerprints import fingerprints
-from network import NetworkHandler
+from MiniProject_DensityRegression.fingerprints import fingerprints
+from MiniProject_DensityRegression.network import NetworkHandler
 import numpy as np
 from scipy import stats
 import pickle

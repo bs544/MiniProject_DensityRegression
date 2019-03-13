@@ -1,12 +1,12 @@
 from __future__ import absolute_import
 import numpy as np
-from den_fmt_io import castep_data
+from MiniProject_DensityRegression.den_fmt_io import castep_data
 #from sympy.physics.quantum.cg import CG as CG_py
-from fortran.f90_descriptor import f90wrap_get_cg_tensor as get_CG_tensor
-from fortran.f90_descriptor import f90wrap_getbispectrum as get_bispect
-from fortran.f90_descriptor import f90wrap_bispect_length as bispect_length
-from fortran.f90_descriptor import f90wrap_getpowerspectrum as get_powerspect
-from fortran.f90_descriptor import f90wrap_invsqrtoverlap as invSqrtOverlap
+from MiniProject_DensityRegression.fortran.f90_descriptor import f90wrap_get_cg_tensor as get_CG_tensor
+from MiniProject_DensityRegression.fortran.f90_descriptor import f90wrap_getbispectrum as get_bispect
+from MiniProject_DensityRegression.fortran.f90_descriptor import f90wrap_bispect_length as bispect_length
+from MiniProject_DensityRegression.fortran.f90_descriptor import f90wrap_getpowerspectrum as get_powerspect
+from MiniProject_DensityRegression.fortran.f90_descriptor import f90wrap_invsqrtoverlap as invSqrtOverlap
 import time
 import os
 import pickle
@@ -121,10 +121,11 @@ class fingerprints():
             grid = cell_class.grid
             density = cell_class.density
             natoms = len(elements)
+
             if (natoms not in at_posns.shape):
                 print("invalid atom positions")
-            elif (natoms == at_posns.shape[0]):
-                at_posns = at_posns.T
+            # elif (natoms == at_posns.shape[0]):
+            #     at_posns = at_posns.T
 
             glob_powerspectrum = get_powerspect(self.nmax,self.lmax,self.Rc,get_f90_array(at_posns),get_f90_array(cell),natoms,get_f90_array(grid[0,:]),self.W,self.powerlength,False,self.powerlength)
             glob_powerspectrum = np.asarray(glob_powerspectrum.T,order="C")

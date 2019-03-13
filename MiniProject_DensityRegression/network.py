@@ -1,5 +1,5 @@
 import tensorflow as tf
-from fingerprints import fingerprints
+from MiniProject_DensityRegression.fingerprints import fingerprints
 import numpy as np
 import pickle
 import os
@@ -202,7 +202,8 @@ class NetworkHandler():
             counter = 0
             for epoch in range(self.nEpochs):
                 print('epoch {}'.format(epoch+1))
-                net_X_minibatches, net_y_minibatches, nbatches = self.get_batches(net_X_batch,net_y_batch)
+                net_X_minibatches, net_y_minibatches, nbatches = self.get_batches(self.X_train,self.y_train)
+                #net_X_batch,net_y_batch)
                 for minibatch_idx in range(nbatches):
 
                     input = {network.in_vect:net_X_minibatches[minibatch_idx],network.target:net_y_minibatches[minibatch_idx].reshape(-1,1)}
