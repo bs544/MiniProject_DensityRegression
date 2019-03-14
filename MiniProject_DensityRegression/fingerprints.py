@@ -241,11 +241,14 @@ class fingerprints():
             self.fingerprint -= self.mean
             self.standev = np.std(self.fingerprint,axis=0)
             self.standev.reshape((len(self.standev),1))
+            #divide by standard deviation if it's above a threshold, otherwise leave the fingerprints alone
+
             if (all(self.standev[self.bilength:]<1e-15)):
                 print("there should only be one cell training")
-                self.fingerprint[:,:self.bilength] = self.fingerprint[:,:self.bilength]/(self.standev[None,:self.bilength]+1e-8)
-            else:
-                self.fingerprint = self.fingerprint/(self.standev[None,:]+1e-8)
+            self.fingerprint = np.where(self.standev[None,:]>1e-5,self.fingerprint/self.standev[None,:],self.fingerprint)
+            #     self.fingerprint[:,:self.bilen            print(self.fingerprint.shape)gth] = self.fingerprint[:,:self.bilength]/(self.standev[None,:self.bilength]+1e-8)
+            # else:
+            #     self.fingerprint = self.fingerprint/(self.standev[None,:]+1e-8)
 
     def get_max_r(self,cell,grid,posns):
         #gets the maximum distance from any atom for which the density is non zero

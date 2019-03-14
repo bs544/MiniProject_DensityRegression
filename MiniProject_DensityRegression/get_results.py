@@ -114,6 +114,9 @@ def std_2d(netName,cellName,plane,rel_std=True,rel_cap=2.0):
 
     if (plane is None):
         plane=grid[1,2]
+    else:
+        idx = np.argmin(plane-grid[:,2])
+        plane = grid[idx,2]
 
     plane_idx = np.where(plane==grid[:,2])[0]
 
@@ -134,7 +137,7 @@ def std_2d(netName,cellName,plane,rel_std=True,rel_cap=2.0):
     #X,Y,Z = transform2d(x,y,z)
     cm = plt.cm.get_cmap('RdYlBu')
 
-    sc = plt.scatter(x,y,c=z,cmap=cm,marker='.',s=5.0,alpha=1)
+    sc = plt.scatter(x,y,c=z,cmap=cm,marker='.',s=50.0,alpha=1)
     plt.colorbar(sc)
     plt.show()
 
@@ -167,7 +170,14 @@ def FPmap(netName,cellName,plane=None):
 
     plane_idx = np.where(plane==grid[:,2])[0]
 
-    plane_FPs = C.supercell.FP[plane_idx,:fp.bilength]
+    plane_FPs = C.supercell.FP[plane_idx,:]
+    np.save("FPs.npy",plane_FPs)
+
+    plane_FPs -= np.mean(plane_FPs,axis=0)
+
+    std = np.std(plane_FPs,axis=0)
+    plane_FPs = np.where(std[None,:]>1e-5,plane_FPs/10*std[None,:],plane_FPs)
+    #print(np.argmax(plane_FPs,axis=0))
 
     x = C.supercell.grid[plane_idx,0]
     y = C.supercell.grid[plane_idx,1]
@@ -178,7 +188,7 @@ def FPmap(netName,cellName,plane=None):
 
     cm = plt.cm.get_cmap('RdYlBu')
 
-    sc = plt.scatter(x,y,c=z,cmap=cm,marker='.',s=50.0,alpha=1)
+    sc = plt.scatter(x,y,c=z,cmap=cm,marker='.',s=50.0,alpha=1,vmax=0.1)
     plt.colorbar(sc)
     plt.show()
 
@@ -186,7 +196,7 @@ def densityMap(netName,cellName,plane=None):
     #using precalculated fingerprints and cell data for everything
 
     #define descriptor (optional)
-    fp = fingerprints(lmax=4,nmax=5,r_c=4.5)
+    fp = fingerprints(lmax=4,nmax=5,r_c=2.5)
 
     #setup and load network
     # N = NetworkHandler(fp,name=netName)
@@ -203,6 +213,9 @@ def densityMap(netName,cellName,plane=None):
 
     if (plane is None):
         plane=grid[1,2]
+    else:
+        idx = np.argmin(plane-grid[:,2])
+        plane = grid[idx,2]
 
     plane_idx = np.where(plane==grid[:,2])[0]
 
@@ -225,7 +238,7 @@ def densityMap(netName,cellName,plane=None):
 
     cm = plt.cm.get_cmap('RdYlBu')
 
-    sc = plt.scatter(x,y,c=z,cmap=cm,marker='.',s=5.0,alpha=1)
+    sc = plt.scatter(x,y,c=z,cmap=cm,marker='.',s=50.0,alpha=1)
     plt.colorbar(sc)
     plt.show()
     plt.close()
@@ -252,6 +265,9 @@ def NetOutputMap(netName,cellName,plane=None):
 
     if (plane is None):
         plane=grid[1,2]
+    else:
+        idx = np.argmin(plane-grid[:,2])
+        plane = grid[idx,2]
 
     plane_idx = np.where(plane==grid[:,2])[0]
 
@@ -269,7 +285,7 @@ def NetOutputMap(netName,cellName,plane=None):
     #X,Y,Z = transform2d(x,y,z)
     cm = plt.cm.get_cmap('RdYlBu')
 
-    sc = plt.scatter(x,y,c=z,cmap=cm,marker='.',s=5.0,alpha=1)
+    sc = plt.scatter(x,y,c=z,cmap=cm,marker='.',s=50.0,alpha=1)
     plt.colorbar(sc)
     plt.show()
     return

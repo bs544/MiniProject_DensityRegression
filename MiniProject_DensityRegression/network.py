@@ -79,9 +79,11 @@ class NetworkHandler():
         self.descriptor.get_FP(save=True)
         print("dataset size: {}".format(len(self.descriptor.density)))
 
-        idx = np.where(self.denThreshold*self.descriptor.density>np.max(self.descriptor.density))[0]
-        self.descriptor.density = self.descriptor.density[idx]
-        self.descriptor.fingerprint = self.descriptor.fingerprint[idx,:]
+
+
+        # idx = np.where(self.denThreshold*self.descriptor.density>np.max(self.descriptor.density))[0]
+        # self.descriptor.density = self.descriptor.density[idx]
+        # self.descriptor.fingerprint = self.descriptor.fingerprint[idx,:]
 
         #center data on zero and standardise
         self.descriptor.standardise_FP()
@@ -284,7 +286,8 @@ class NetworkHandler():
 
         if (not standard):
             X -= self.datamean
-            X = X/(self.datastd[None,:]+1e-8)
+            X = np.where(self.datastd[None,:]>1e-5,X/self.datastd[None,:],X)
+            #X = X/(self.datastd[None,:]+1e-8)
 
         net_idx = range(nNetworks)
 
