@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 
 class NetworkHandler():
-    def __init__(self,descriptor,nodes=[50,50],nNetworks=3,means_per_network=1,train_params=None,train_fraction=0.9,batch_size=50,nEpochs=150,activation="sigmoid",name="DensityEnsemble",train_dir=None):
+    def __init__(self,descriptor,nodes=[50,50],nNetworks=3,means_per_network=1,train_params=None,train_fraction=0.9,batch_size=50,nEpochs=150,activation="sigmoid",name="DensityEnsemble",train_dir=None,decay_rate=0.996):
         self.nodes = nodes
         self.set_train_params(train_params)
         self.set_activation(activation)
@@ -26,6 +26,7 @@ class NetworkHandler():
         self.loaded = False
         self.y_mean = None
         self.y_std = None
+        self.decay_rate = decay_rate
         self.denThreshold=1000#anything lower than the max density correction divided by this won't be trained
         if (train_dir is not None):
             self.train_dir=train_dir
@@ -188,12 +189,19 @@ class NetworkHandler():
 
         X_batches, y_batches, nbatches = self.get_batches(self.X_train,self.y_train,nBatches=self.nNetworks)
 
-
         for net_index, network in enumerate(self.session["ensemble"]):
 
             if (True):
+                #learn_rate = self.train_params["learning_rate"]
+                #print(learn_rate)
                 self.session["tf_session"].run(tf.assign(network.output_mean,self.y_mean))
                 self.session["tf_session"].run(tf.assign(network.output_std,self.y_std))
+                #self.session["tf_session"].run(tf.assign(network.learn_rate,learn_rate))
+
+
+
+
+
 
             print('Time: {}, '.format(time.time()-start),'network {}:'.format(net_index+1))
 
@@ -222,6 +230,12 @@ class NetworkHandler():
                 self.test_rmse[net_index].append(test_rmse)
                 print('test rmse: {}'.format(train_rmse))
                 print('loss: {}'.format(loss))
+
+                #print("learning rate: ")
+                #self.session["tf_session"].run(tf.print(network.learn_rate))
+                #if (epoch%100==0):
+                #    learn_rate *= self.decay_rate
+                #    self.session["tf_session"].run(tf.assign(network.learn_rate,learn_rate))
             self.loss[net_index] = np.asarray(self.loss[net_index])
             self.train_rmse[net_index] = np.asarray(self.train_rmse[net_index])
             self.test_rmse[net_index] = np.asarray(self.test_rmse[net_index])
@@ -292,7 +306,7 @@ class NetworkHandler():
         net_idx = range(nNetworks)
 
         mean = np.zeros((X.shape[0],nNetworks))
-        std = np.zeros((X.shape[0],nNetworks))
+        var = np.zeros((X.shape[0],nNetworks))
 
 
         for idx,network in enumerate(self.session["ensemble"]):
@@ -302,16 +316,19 @@ class NetworkHandler():
                     self.session["tf_session"].run(tf.assign(network.output_std,self.y_std))
 
                 input = {network.in_vect:X}
-                mean_,std_ = self.session["tf_session"].run([network.mean,network.std],input)
+                # mean_,std_ = self.session["tf_session"].run([network.mean,network.std],input)
+                # mean[:,idx] = mean_[:,0]
+                # std[:,idx] = std_[:,0]
+                mean_,var_ = self.session["tf_session"].run([network.mean,network.std],input)
                 mean[:,idx] = mean_[:,0]
-                std[:,idx] = std_[:,0]
+                var[:,idx] = var_[:,0]
 
         if (ensemble):
             ensemble_mean = mean.mean(axis=1)
-            ensemble_std = np.sqrt((np.sum(np.square(mean)-np.square(ensemble_mean[:,None]),axis=1)+np.sum(np.square(std),axis=1))/self.nNetworks)
+            ensemble_std = np.sqrt((np.sum(np.square(mean)-np.square(ensemble_mean[:,None]),axis=1)+np.sum(var,axis=1))/self.nNetworks)
         else:
             ensemble_mean = mean
-            ensemble_std = std
+            ensemble_std = np.sqrt(var)
 
         return ensemble_mean,ensemble_std
 
@@ -369,10 +386,13 @@ class Network():
             self.name = name
         self.dtype = tf.float64
         self.train_params = train_params
+
         if (True):
+            #learn_rate = train_params["learning_rate"]
             with tf.variable_scope('{}{}'.format(self.name,"targets")):
                 self.output_mean = tf.Variable(0.0,trainable=False,dtype=self.dtype)
                 self.output_std = tf.Variable(0.1,trainable=False,dtype=self.dtype)
+                #self.learn_rate = tf.Variable(learn_rate,trainable=False,dtype=self.dtype)
         self.set_activation(activation)
         self.setup()
 

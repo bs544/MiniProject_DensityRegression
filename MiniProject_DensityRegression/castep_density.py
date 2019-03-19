@@ -17,7 +17,7 @@ class Castep_density():
         self.trainNet = trainNet
         self.calc_FP = calc_FP
         self.supercell = None
-        self.xcut = 6.7
+        self.xcut = -6.7
         self.scale = 0.2
         self.set_descriptor(descriptor)
         self.set_network_handler(network_handler)
@@ -190,7 +190,7 @@ class Castep_density():
 
         return idx
 
-    def setCellDensities(self,filename=None):
+    def setCellDensities(self,filename=None,taper=True):
         #requires supercell to be set
         if (self.supercell is None):
             print("set the cell values before continuing")
@@ -212,7 +212,13 @@ class Castep_density():
             density[nonzero_idx] = ensemble_mean[range(len(nonzero_idx))]
         else:
             print("messed up the assigning")
-        density *= taper
+        if (taper):
+            density *= taper
+        # cell = self.supercell.cell
+        # print(cell.shape)
+        # cell_volume = abs(np.dot(cell[0],np.cross(cell[1],cell[2])))
+        # print(cell_volume)
+        # density /= cell_volume
         self.supercell.set_edensity({"xyz":fullgrid,"density":density})
 
         # print(self.supercell.grid[1089,:])
